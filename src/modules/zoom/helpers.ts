@@ -4,10 +4,12 @@ import { ZoomMeetingParticipant } from "./types";
 
 /** Row de alumno (desde SIGU_LECTURA) */
 export type AlumnoRow = {
-  codigo: string;
+  codigo?: string;
+  CODIGO?: string;
   nombre_completo: string;
-  facultad: string;
-  c_codesp: string;
+  facultad?: string;
+  c_codesp?: string;
+  email?: string;
 };
 
 /** Participante enriquecido */
@@ -19,11 +21,11 @@ export type ZoomParticipantEnriched = ZoomMeetingParticipant & {
 
 /** Resumen de clase basado en el host/docente (SALA/AULA) */
 export type HostSessionSummary = {
-  hostCount: number; // cuántos registros "docente" se encontraron
-  class_start?: string; // ISO UTC
-  class_end?: string; // ISO UTC
-  class_duration_sec: number; // suma de duration de segmentos (segundos)
-  host_merged?: ZoomMeetingParticipant; // participante host consolidado
+  hostCount: number;
+  class_start?: string;
+  class_end?: string;
+  class_duration_sec: number;
+  host_merged?: ZoomMeetingParticipant;
 };
 
 export const toDT = (iso: string) => DateTime.fromISO(iso, { zone: "utc" });
@@ -67,11 +69,91 @@ export const normalizeName = (s: string) => {
     .replace(/\s+/g, " ");
 };
 
+/** Normaliza email */
+export const normalizeEmail = (s: string) => {
+  return (s || "").trim().toLowerCase();
+};
+
+/** Tokens del nombre */
+export const tokenizeName = (s: string): string[] => {
+  return normalizeName(s).split(" ").filter(Boolean);
+};
+
+/** true si todos los tokens de a están dentro de b */
+export const isSubsetTokens = (a: string[], b: string[]) => {
+  return a.every((x) => b.includes(x));
+};
+
 /** Regla docente/host (tu caso: SALA / AULA) */
 export const isDocente = (p: ZoomMeetingParticipant) => {
   const n = normalizeName(p.name || "");
   return n.includes("sala") || n.includes("aula");
 };
+
+/** Obtiene código tolerando distintas formas */
+export const getAlumnoCodigo = (a: AlumnoRow): string => {
+  return String(a.codigo ?? a.CODIGO ?? "").trim();
+};
+
+/** Match flexible por nombre */
+export function findBestAlumnoByName(zoomName: string, alumnos: AlumnoRow[]) {
+  const zoomNorm = normalizeName(zoomName);
+  const zoomTokens = tokenizeName(zoomName);
+
+  if (!zoomNorm || zoomTokens.length === 0) return null;
+
+  const exact: AlumnoRow[] = [];
+  const subset: AlumnoRow[] = [];
+
+  for (const a of alumnos) {
+    const alumnoName = String(a.nombre_completo ?? "");
+    const alumnoNorm = normalizeName(alumnoName);
+    const alumnoTokens = tokenizeName(alumnoName);
+
+    if (!alumnoNorm || alumnoTokens.length === 0) continue;
+
+    if (alumnoNorm === zoomNorm) {
+      exact.push(a);
+      continue;
+    }
+
+    const zoomDentroAlumno = isSubsetTokens(zoomTokens, alumnoTokens);
+    const alumnoDentroZoom = isSubsetTokens(alumnoTokens, zoomTokens);
+
+    if (zoomDentroAlumno || alumnoDentroZoom) {
+      subset.push(a);
+    }
+  }
+
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return null;
+
+  if (subset.length === 1) return subset[0];
+  if (subset.length > 1) return null;
+
+  return null;
+}
+
+/** Match final: primero email, luego nombre */
+export function findBestAlumno(
+  participant: ZoomMeetingParticipant,
+  alumnos: AlumnoRow[],
+) {
+  const participantEmail = normalizeEmail(
+    (participant as any).user_email || "",
+  );
+
+  if (participantEmail) {
+    const byEmail = alumnos.filter(
+      (a) => normalizeEmail(a.email || "") === participantEmail,
+    );
+
+    if (byEmail.length === 1) return byEmail[0];
+    if (byEmail.length > 1) return null;
+  }
+
+  return findBestAlumnoByName(participant.name || "", alumnos);
+}
 
 /**
  * Merge genérico por "key" y reconexión por gap.
@@ -113,7 +195,7 @@ export function mergeByKey(
     for (const p of arr) {
       const join = Date.parse(p.join_time);
       const leave = Date.parse(p.leave_time);
-      const dur = Number(p.duration || 0); // Zoom: segundos
+      const dur = Number(p.duration || 0);
 
       if (segments.length === 0) {
         segments.push({ join, leave, duration: dur });
@@ -154,13 +236,7 @@ export function mergeByKey(
 }
 
 /**
- * ✅ NUEVO: merge del host/docente para obtener inicio/fin/duración de clase
- * - filtra docentes (SALA/AULA)
- * - mergea (por id o nombre)
- * - luego calcula:
- *    - class_start = mínimo join_time
- *    - class_end   = máximo leave_time
- *    - class_duration_sec = suma de duration de los docentes mergeados
+ * Merge del host/docente para obtener inicio/fin/duración de clase
  */
 export function mergeHostSession(
   participants: ZoomMeetingParticipant[],
@@ -195,7 +271,6 @@ export function mergeHostSession(
       .sort((a, b) => Number(b.duration || 0) - Number(a.duration || 0))[0] ??
     undefined;
 
-  // ✅ construir sin undefined en opcionales
   const out: HostSessionSummary = {
     hostCount: docentesRaw.length,
     class_duration_sec,
@@ -216,6 +291,10 @@ export function mergeHostSession(
 
 /**
  * Merge + enriquecer SOLO estudiantes (excluye docentes)
+ * Prioridad:
+ * 1. email
+ * 2. nombre exacto
+ * 3. nombre flexible por tokens
  */
 export function mergeAndEnrichStudents(
   participants: ZoomMeetingParticipant[],
@@ -225,31 +304,21 @@ export function mergeAndEnrichStudents(
   const estudiantesRaw = participants.filter((p) => !isDocente(p));
   const merged = mergeByKey(estudiantesRaw, gapMinutes);
 
-  const alumnosByName = new Map<string, AlumnoRow[]>();
-  for (const a of alumnos) {
-    const key = normalizeName(a.nombre_completo);
-    const arr = alumnosByName.get(key);
-    if (arr) arr.push(a);
-    else alumnosByName.set(key, [a]);
-  }
-
   return merged.map((p) => {
-    const key = normalizeName(p.name || "");
-    const alumno = alumnosByName.get(key)?.[0];
+    const alumno = findBestAlumno(p, alumnos);
     if (!alumno) return p;
 
     return {
       ...p,
-      codigo: alumno.codigo,
-      facultad: alumno.facultad,
-      c_codesp: alumno.c_codesp,
+      codigo: getAlumnoCodigo(alumno),
+      facultad: alumno.facultad ?? "",
+      c_codesp: alumno.c_codesp ?? "",
     };
   });
 }
 
 /**
  * Helper final para armar participantes y obtener resumen de clase (host)
- * - retorna { participantesFinal, hostSummary }
  */
 export function buildMeetingParticipants(
   participants: ZoomMeetingParticipant[],
@@ -261,11 +330,6 @@ export function buildMeetingParticipants(
 } {
   const hostSummary = mergeHostSession(participants, gapMinutes);
   const estudiantes = mergeAndEnrichStudents(participants, alumnos, gapMinutes);
-
-  // docentes (sin merge) o merged? => aquí puedes decidir.
-  // Para reporte de clase YA usamos hostSummary; para lista puedes:
-  // - poner docentesRaw, o
-  // - poner docentesMerged (más limpio).
   const docentesMerged = mergeByKey(participants.filter(isDocente), gapMinutes);
 
   return {

@@ -12,6 +12,13 @@ export type AlumnoRow = {
   c_codesp: string;
 };
 
+export type MatriculadoShortnameRow = {
+  CODIGO: string;
+  nombre_completo: string;
+  facultad: string;
+  c_codesp: string;
+};
+
 export type HorarioGrupoRow = Record<string, any>;
 
 export type GrupoCourseRow = {
@@ -39,14 +46,25 @@ type AsisHeaderKey = {
   n_codpla: number;
   c_sedcod?: string | null;
   c_dnidoc?: string | null;
-  d_fecha: string; // YYYY-MM-DD
-  tipo: string; // 'Z'
+  d_fecha: string;
+  tipo: string;
 };
 
 type AsisHeaderData = {
   c_tema?: string | null;
   mins?: string | null;
   c_user_upd?: string | null;
+};
+
+type AsisHeaderKeyNew = {
+  n_codper: number;
+  c_codmod: string;
+  c_codfac: string;
+  c_codesp: string;
+  c_codcur: string;
+  c_grpcur: string;
+  n_codpla: number;
+  d_fecha: string; // YYYY-MM-DD
 };
 
 export class ZoomRepository {
@@ -56,16 +74,47 @@ export class ZoomRepository {
     return this.registry.get(dbName);
   }
 
-  // =========================
-  // LECTURAS
-  // =========================
-
-  async getEstudiantes(): Promise<AlumnoRow[]> {
+  async getEstudiantes() {
     const [rows] = await this.db("SIGU_LECTURA").raw(
       'select codigo, CONCAT(nombres, " ", paterno, " ", materno) as nombre_completo, facultad, c_codesp from alumno where facultad in ("E","S")',
     );
 
     return rows as AlumnoRow[];
+  }
+
+  async getMatriculadosByShortname(shortname: string, periodo: number) {
+    const [rows] = await this.db("SIGU_LECTURA").raw(
+      `
+      SELECT DISTINCT
+        a.c_codalu AS CODIGO,
+        CONCAT(d.nombres, ' ', d.paterno, ' ', d.materno) AS nombre_completo,
+        e.c_email_institucional as email,
+        a.c_codfac_alu AS facultad,
+        a.c_codesp_alu AS c_codesp
+      FROM tb_alu_cur_grp a
+      INNER JOIN tb_curso_grupo_sincro s
+        ON a.n_codper = s.n_codper
+        AND a.c_codcur = s.c_codcur
+        AND a.n_codpla = s.n_codpla
+        AND a.c_grpcur = s.c_grpcur
+        AND a.c_codfac_alu = s.c_codfac
+        AND a.c_codesp_alu = s.c_codesp
+        AND a.c_codmod = s.c_codmod
+      INNER JOIN alumno d
+        ON d.codigo = a.c_codalu
+      INNER JOIN tb_ficha_perso_alu e
+        ON e.c_codalu = a.c_codalu
+      WHERE
+        a.n_codper = ?
+        AND a.c_codfac_alu IN ('E','S')
+        AND a.c_codalu NOT IN (2119921,12345678)
+        AND a.c_estado <> 'R'
+        AND s.shortname = ?
+      `,
+      [periodo, shortname],
+    );
+
+    return rows;
   }
 
   async getGrupoPorShortname(
@@ -130,10 +179,6 @@ export class ZoomRepository {
     return rows as GrupoCourseRow[];
   }
 
-  // =========================
-  // ESCRITURA (sin trx)
-  // =========================
-
   /**
    * Busca un header existente en tb_asis_alum con la "llave" dada.
    * Si no existe, crea uno y retorna id_asistencia.
@@ -143,7 +188,7 @@ export class ZoomRepository {
   async ensureAsistenciaHeader(
     key: AsisHeaderKey,
     data: AsisHeaderData,
-    classStartIso: string, // ✅ nuevo
+    classStartIso: string,
   ): Promise<number> {
     const existing = await this.db("SIGU_INSERT")("tb_asis_alum")
       .select("id_asistencia")
@@ -155,16 +200,12 @@ export class ZoomRepository {
         c_codcur: key.c_codcur,
         c_grpcur: key.c_grpcur,
         n_codpla: key.n_codpla,
-        c_sedcod: key.c_sedcod ?? null,
-        c_dnidoc: key.c_dnidoc ?? null,
         d_fecha: key.d_fecha,
-        tipo: key.tipo,
       })
       .first();
 
     if (existing?.id_asistencia) return existing.id_asistencia as number;
 
-    // ✅ inicio de clase como Date (DATETIME)
     const classStart = DateTime.fromISO(classStartIso).toJSDate();
 
     const insertRow = {
@@ -186,8 +227,7 @@ export class ZoomRepository {
       mins: 0,
       c_user_upd: data.c_user_upd ?? null,
 
-      // 🔥 AQUÍ el cambio:
-      d_fecha_upd: classStart, // ✅ 18/02 + hora inicio (no NOW)
+      d_fecha_upd: classStart,
 
       tipo: 1,
       auto: 0,
@@ -196,45 +236,31 @@ export class ZoomRepository {
     const [id] = await this.db("SIGU_INSERT")("tb_asis_alum").insert(insertRow);
     return id as number;
   }
+
   /**
    * Inserta detalle en tb_asis_alum_det (id_asistencia, c_codalu) con c_estado='A'.
    * Si ya existe, actualiza a 'A'.
    */
-  // en ZoomRepository
 
   async upsertAsistenciaDetalleConEstado(
     id_asistencia: number,
     rowsDet: Array<{ c_codalu: string; c_estado: string }>,
-    classStartIso: string, // inicio de clase (ISO)
+    classStartIso: string,
   ): Promise<void> {
     if (rowsDet.length === 0) return;
 
-    // ✅ Convierte a Date para que MySQL/MariaDB lo guarde como DATETIME
-    // (si tu columna es DATETIME/TIMESTAMP)
     const classStart = DateTime.fromISO(classStartIso).toJSDate();
 
     const rows = rowsDet.map((r) => ({
       id_asistencia,
       c_codalu: r.c_codalu,
-      c_estado: r.c_estado, // "A" o "T"
-
-      // =========================================================
-      // ✅ PON AQUÍ EL CAMPO REAL DE FECHA/HORA EN tb_asis_alum_det
-      // Deja SOLO UNO (el que exista en tu tabla)
-      // =========================================================
-
-      // d_fecha: DateTime.fromJSDate(classStart).toISODate(), // si es DATE (YYYY-MM-DD)
-      // d_hora: DateTime.fromJSDate(classStart).toFormat("HH:mm:ss"), // si guardas hora separada
-      // d_fecha_registro: classStart, // típico DATETIME
-      // d_fecha_upd: classStart,      // si tu detalle usa d_fecha_upd pero quieres que sea inicio clase
-      // d_fecha_marca: classStart,    // otro nombre posible
+      c_estado: r.c_estado,
     }));
 
     await this.db("SIGU_INSERT")("tb_asis_alum_det")
       .insert(rows)
       .onConflict(["id_asistencia", "c_codalu"])
       .merge({
-        // ✅ Solo cambia estado. NO tocar fecha/hora en updates.
         c_estado: this.db("SIGU_INSERT").raw("VALUES(c_estado)"),
       });
   }
@@ -314,7 +340,7 @@ export class ZoomRepository {
 
   async getMatriculadosPorSincro(s: {
     n_codper: number;
-    c_codfac: string; // ojo: en tb_alu_cur_grp suele ser c_codfac_alu en tu join
+    c_codfac: string;
     c_codesp: string;
     c_codcur: string;
     c_grpcur: string;
@@ -348,5 +374,73 @@ export class ZoomRepository {
     );
 
     return rows as Array<{ CODIGO: string }>;
+  }
+
+  async headerExistsByNewKey(key: AsisHeaderKeyNew): Promise<number | null> {
+    const existing = await this.db("SIGU_INSERT")("tb_asis_alum")
+      .select("id_asistencia")
+      .where({
+        n_codper: key.n_codper,
+        c_codmod: key.c_codmod,
+        c_codfac: key.c_codfac,
+        c_codesp: key.c_codesp,
+        c_codcur: key.c_codcur,
+        c_grpcur: key.c_grpcur,
+        n_codpla: key.n_codpla,
+        d_fecha: key.d_fecha,
+      })
+      .first();
+
+    return existing?.id_asistencia ? Number(existing.id_asistencia) : null;
+  }
+
+  async insertHeaderIfNotExistsByNewKey(
+    key: AsisHeaderKeyNew,
+    data: AsisHeaderData,
+    classStartIso: string,
+    extra?: {
+      c_sedcod?: string | null;
+      c_dnidoc?: string | null;
+      c_tema?: string | null;
+      mins?: number | null;
+      tipo?: number;
+      auto?: number;
+    },
+  ): Promise<number | null> {
+    const existsId = await this.headerExistsByNewKey(key);
+    if (existsId) return null;
+
+    const classStart = DateTime.fromISO(classStartIso).toJSDate();
+
+    const insertRow = {
+      n_codper: key.n_codper,
+      c_codmod: key.c_codmod,
+      c_codfac: key.c_codfac,
+      c_codesp: key.c_codesp,
+      c_codcur: key.c_codcur,
+      c_grpcur: key.c_grpcur,
+      n_codpla: key.n_codpla,
+
+      d_fecha: key.d_fecha,
+
+      // ✅ IMPORTANTES (antes los tenías en ensureAsistenciaHeader)
+      d_fecha_registro: key.d_fecha,
+      c_estado: "A",
+
+      // opcionales
+      c_sedcod: extra?.c_sedcod ?? null,
+      c_dnidoc: extra?.c_dnidoc ?? null,
+      c_tema: extra?.c_tema ?? "tema tema",
+      mins: (extra?.mins ?? 0) as any,
+      c_user_upd: data.c_user_upd ?? null,
+
+      d_fecha_upd: classStart,
+
+      tipo: extra?.tipo ?? 1,
+      auto: extra?.auto ?? 0,
+    };
+
+    const [id] = await this.db("SIGU_INSERT")("tb_asis_alum").insert(insertRow);
+    return Number(id);
   }
 }

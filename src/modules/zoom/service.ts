@@ -18,12 +18,12 @@ type ZoomMeetingMerged = Omit<ZoomMeetingReportItem, "uuid"> & {
   shortname?: string | undefined;
   participantes?: ZoomMeetingParticipant[] | undefined;
 };
-
+2610514;
 export class ZoomService {
   PERU_TZ = "America/Lima";
 
-  FECHA_DESDE = "2026-02-08";
-  FECHA_HASTA = "2026-02-15";
+  FECHA_DESDE = "2026-04-12";
+  FECHA_HASTA = "2026-04-14";
 
   GAP_MINUTES = 10;
   TARDANZA_MIN = 15;
@@ -47,6 +47,7 @@ export class ZoomService {
     //   const resp = await this.zoomHttp.getUsers(page_size, i);
     //   usuarios.push(...resp.users);
     // }
+
     const usuarios: ZoomUser[] = [
       {
         id: "3dfDBWDgTYy-mZAF4RBe7Q",
@@ -544,6 +545,18 @@ export class ZoomService {
         status: "active",
       },
       {
+        id: "tFel33Z3R_i1ItigcuEHOQ",
+        first_name: "SALA 45",
+        last_name: "UMA",
+        display_name: "SALA 45 UMA",
+        email: "sala45@uma.edu.pe",
+        type: 1,
+        timezone: "America/Lima",
+        created_at: "2021-04-17T00:37:02Z",
+        last_login_time: "2025-05-14T14:58:42Z",
+        status: "active",
+      },
+      {
         id: "mw2e1bjXTB6Al2W-rkcG5g",
         first_name: "SALA 46",
         last_name: "UMA",
@@ -634,15 +647,15 @@ export class ZoomService {
   async getReuniones() {
     const usuarios = await this.getUsuarios();
 
-    const param_from = "2026-02-01";
-    const param_to = "2026-02-30";
+    // const param_from = "2026-02-01";
+    // const param_to = "2026-02-30";
     const page_size = 300;
 
     const meetingsPerUser = await mapWithConcurrency(usuarios, 3, async (u) => {
       const resp: ZoomMeetingsReportResponse = await this.zoomHttp.getReuniones(
         u.id,
-        param_from,
-        param_to,
+        this.FECHA_DESDE,
+        this.FECHA_HASTA,
         page_size,
       );
 
@@ -755,7 +768,7 @@ export class ZoomService {
     const reuniones = await this.filtrarReuniones();
 
     // 🔥 alumnos una sola vez
-    const alumnos: AlumnoRow[] = await this.zoomRepository.getEstudiantes();
+    // const alumnos: AlumnoRow[] = await this.zoomRepository.getEstudiantes();
 
     for (const reu of reuniones) {
       if (typeof reu.uuid === "string") {
@@ -771,6 +784,12 @@ export class ZoomService {
         )?.value;
 
         reu.shortname = shortname;
+
+        const alumnos: AlumnoRow[] =
+          await this.zoomRepository.getMatriculadosByShortname(
+            shortname || "",
+            20261,
+          );
 
         // ✅ NUEVO: arma participantes + resumen host (clase)
         const { participantesFinal, hostSummary } = buildMeetingParticipants(
@@ -804,6 +823,11 @@ export class ZoomService {
         }
 
         reu.shortname = shortname;
+        const alumnos: AlumnoRow[] =
+          await this.zoomRepository.getMatriculadosByShortname(
+            shortname || "",
+            20261,
+          );
 
         // ✅ NUEVO: arma participantes + resumen host (clase)
         const { participantesFinal, hostSummary } = buildMeetingParticipants(
@@ -835,7 +859,6 @@ export class ZoomService {
   ) {
     if (!horarios || horarios.length === 0) return null;
 
-    // posibles columnas en tb_cur_grp_hor
     const dayKeys = [
       "n_dia",
       "dia",
@@ -870,13 +893,10 @@ export class ZoomService {
         const v = h[k];
         if (v == null) continue;
 
-        // 1) number
         if (typeof v === "number" && v === weekday) return h;
 
-        // 2) string number
         if (typeof v === "string" && Number(v) === weekday) return h;
 
-        // 3) string text (LUNES / LU / etc)
         if (typeof v === "string") {
           const s = v.trim().toUpperCase();
           if (mapDayText[s] === weekday) return h;
@@ -901,8 +921,6 @@ export class ZoomService {
     return null;
   }
 
-  // ===== Tu método actualizado =====
-
   async procesarAsistenciaZoom() {
     console.log("log 0 => inicia procesarAsistenciaZoom");
 
@@ -918,26 +936,31 @@ export class ZoomService {
 
     const TOLERANCIA_MS = this.TARDANZA_MIN * 60 * 1000;
 
-    // =========================================================
-    // ✅ Helpers (duración por participante y por docente/host)
-    // =========================================================
+    // ==========================
+    // Helpers
+    // ==========================
+    const normName = (s: string) =>
+      (s ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // quita tildes
+        .toUpperCase()
+        .replace(/[^A-Z0-9 ]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 
     const getParticipantDurationSec = (p: any): number => {
       if (!p) return 0;
 
-      // 1) si ya viene normalizado en segundos
       const sec = Number(
         p.duration_sec ?? p.total_duration_sec ?? p.stay_sec ?? 0,
       );
       if (sec && sec > 0) return sec;
 
-      // 2) Zoom suele traer duration en MINUTOS en report
       const min = Number(
         p.duration ?? p.total_minutes ?? p.duration_minutes ?? 0,
       );
       if (min && min > 0) return Math.round(min * 60);
 
-      // 3) fallback: si viene join_time/leave_time
       const jt = p.join_time ? DateTime.fromISO(String(p.join_time)) : null;
       const lt = p.leave_time ? DateTime.fromISO(String(p.leave_time)) : null;
       if (jt && lt && jt.isValid && lt.isValid) {
@@ -949,11 +972,45 @@ export class ZoomService {
     };
 
     const getClassDurationSecFromHost = (reu: any): number => {
-      // tu buildMeetingParticipants ya lo coloca aquí:
       const sec = Number(reu?.class_duration_sec ?? 0);
       return sec > 0 ? sec : 0;
     };
 
+    // ==========================
+    // Cache por shortname: matriculados (para match por nombre)
+    // ==========================
+    const matriculadosCache = new Map<
+      string,
+      { byName: Map<string, string[]>; raw: any[] }
+    >();
+
+    const getMatriculadosIndex = async (shortname: string) => {
+      const key = shortname.trim();
+      const cached = matriculadosCache.get(key);
+      if (cached) return cached;
+
+      const mats = await this.zoomRepository.getMatriculadosByShortname(
+        key,
+        periodo,
+      );
+
+      const byName = new Map<string, string[]>();
+      for (const m of mats) {
+        const n = normName(String((m as any).nombre_completo ?? ""));
+        if (!n) continue;
+        const arr = byName.get(n) ?? [];
+        arr.push(String((m as any).CODIGO));
+        byName.set(n, arr);
+      }
+
+      const built = { byName, raw: mats as any[] };
+      matriculadosCache.set(key, built);
+      return built;
+    };
+
+    // ==========================
+    // Loop reuniones
+    // ==========================
     let idx = 0;
 
     for (const reu of reuniones) {
@@ -968,8 +1025,11 @@ export class ZoomService {
         continue;
       }
 
-      const participantes = (reu as any).participantes ?? [];
-      console.log("log 8 => participantes =", participantes.length);
+      const participantesOriginal = (reu as any).participantes ?? [];
+      console.log(
+        "log 8 => participantesOriginal =",
+        participantesOriginal.length,
+      );
 
       const startIso = String((reu as any).start_time || "");
 
@@ -978,22 +1038,18 @@ export class ZoomService {
         : DateTime.now().setZone(this.PERU_TZ).toISODate()!;
       console.log("log 9 => fechaClase =", fechaClase);
 
-      // ✅ inicio de clase fijo para guardar en tb_asis_alum_det (NO debe cambiar luego)
       const classStartIsoFixed = startIso
         ? DateTime.fromISO(startIso).setZone(this.PERU_TZ).toISO()!
         : DateTime.now().setZone(this.PERU_TZ).toISO()!;
       console.log("log 9.1 => classStartIsoFixed =", classStartIsoFixed);
 
       const weekday = startIso
-        ? DateTime.fromISO(startIso).setZone(this.PERU_TZ).weekday // 1..7
+        ? DateTime.fromISO(startIso).setZone(this.PERU_TZ).weekday
         : null;
       console.log("log 10 => weekday =", weekday);
 
       const classStartMs = startIso ? DateTime.fromISO(startIso).toMillis() : 0;
 
-      // =========================================================
-      // ✅ duración de clase según docente/host (segundos)
-      // =========================================================
       const classDurationSec = getClassDurationSecFromHost(reu);
       const minStaySec =
         classDurationSec > 0 ? Math.round(classDurationSec * this.MIN_PCT) : 0;
@@ -1001,9 +1057,83 @@ export class ZoomService {
       console.log("log 10.1 => classDurationSec =", classDurationSec);
       console.log("log 10.2 => minStaySec(25%) =", minStaySec);
 
-      // =========================================================
+      // ==========================
+      // ✅ Match por NOMBRE SOLO con matriculados del shortname
+      // ==========================
+      // ==========================
+      // ✅ Match por NOMBRE SOLO con matriculados del shortname
+      //    (y corrige codigo si buildMeetingParticipants lo puso mal)
+      // ==========================
+      const matsIdx = await getMatriculadosIndex(shortname);
+
+      const participantes: any[] = [];
+      let matchOk = 0;
+      let matchFix = 0;
+      let matchAmb = 0;
+      let matchNone = 0;
+
+      for (const p of participantesOriginal) {
+        const nameRaw = String((p as any).name ?? "").trim();
+        const existingCodigo = String((p as any).codigo ?? "").trim();
+
+        if (!nameRaw) {
+          matchNone++;
+          participantes.push({ ...p, codigo: existingCodigo || "" });
+          continue;
+        }
+
+        const n = normName(nameRaw);
+        const candidatos = matsIdx.byName.get(n) ?? [];
+
+        // Caso 1: si ya viene codigo, VALIDARLO contra candidatos del shortname
+        if (existingCodigo) {
+          if (candidatos.includes(existingCodigo)) {
+            matchOk++;
+            participantes.push({ ...p, codigo: existingCodigo });
+            continue;
+          }
+
+          if (candidatos.length === 1) {
+            matchFix++;
+            participantes.push({ ...p, codigo: candidatos[0] });
+            continue;
+          }
+
+          // si ya vino con codigo y no pude validar por nombre exacto,
+          // conservarlo en vez de borrarlo
+          if (candidatos.length > 1) matchAmb++;
+          else matchNone++;
+
+          participantes.push({ ...p, codigo: existingCodigo });
+          continue;
+        }
+        // Caso 2: no viene codigo -> resolver por nombre
+        if (candidatos.length === 1) {
+          matchOk++;
+          participantes.push({ ...p, codigo: candidatos[0] });
+        } else if (candidatos.length > 1) {
+          matchAmb++;
+          participantes.push({ ...p, codigo: "" }); // ambiguo
+        } else {
+          matchNone++;
+          participantes.push({ ...p, codigo: "" });
+        }
+      }
+
+      console.log(
+        "log 8.1 => matchOk =",
+        matchOk,
+        "matchFix =",
+        matchFix,
+        "matchAmb =",
+        matchAmb,
+        "matchNone =",
+        matchNone,
+      );
+
+      // ==========================
       // min join_time por alumno (para tardanza)
-      // =========================================================
+      // ==========================
       const joinByCodigo = new Map<string, number>();
       for (const p of participantes) {
         const cod = String((p as any).codigo || "").trim();
@@ -1017,10 +1147,9 @@ export class ZoomService {
         if (prev == null || joinMs < prev) joinByCodigo.set(cod, joinMs);
       }
 
-      // =========================================================
-      // ✅ duración acumulada por alumno (segundos) para regla 25%
-      //    Si un alumno aparece varias veces, sumamos.
-      // =========================================================
+      // ==========================
+      // duración acumulada por alumno (segundos) para regla 25%
+      // ==========================
       const stayByCodigo = new Map<string, number>();
       for (const p of participantes) {
         const cod = String((p as any).codigo || "").trim();
@@ -1033,7 +1162,7 @@ export class ZoomService {
       }
 
       // ==========================
-      // 1) TRAER TODAS LAS FILAS SINCRO DEL SHORTNAME
+      // 1) Traer filas sincro del shortname
       // ==========================
       console.log("log 11 => todo(shortname)");
       const sincros = await this.zoomRepository.todo(shortname);
@@ -1045,7 +1174,7 @@ export class ZoomService {
       }
 
       // ==========================
-      // 2) POR CADA FILA SINCRO: CREAR HEADER y DETALLE
+      // 2) Por cada fila sincro
       // ==========================
       let j = 0;
       for (const s of sincros) {
@@ -1061,7 +1190,29 @@ export class ZoomService {
           n_codpla: s.n_codpla,
         });
 
-        // 2.1) DNI DOCENTE por horario del key exacto
+        // 2.1) Matriculados exactos de ESA fila (si 0 => no header, no detalle)
+        console.log("log 26 => getMatriculadosPorSincro()");
+        const mats = await this.zoomRepository.getMatriculadosPorSincro({
+          n_codper: Number(s.n_codper) || periodo,
+          c_codfac: String(s.c_codfac),
+          c_codesp: String(s.c_codesp),
+          c_codcur: String(s.c_codcur),
+          c_grpcur: String(s.c_grpcur),
+          c_codmod: String(s.c_codmod),
+          n_codpla: Number(s.n_codpla) || 0,
+        });
+
+        const matSet = new Set(mats.map((x: any) => String(x.CODIGO)));
+        console.log("log 27 => matriculados =", matSet.size);
+
+        if (matSet.size === 0) {
+          console.log(
+            "log 28 => SKIP: sin matriculados (no header, no detalle)",
+          );
+          continue;
+        }
+
+        // 2.2) DNI docente (solo para guardar)
         console.log("log 21 => getHorarioPorSincro()");
         const horarios = await this.zoomRepository.getHorarioPorSincro({
           n_codper: s.n_codper,
@@ -1075,8 +1226,8 @@ export class ZoomService {
         });
         console.log("log 22 => horarios =", horarios.length);
 
+        // pick horario por día (reutilizo tu lógica tal cual)
         let horarioMatch: any = null;
-
         if (weekday != null && horarios.length > 0) {
           const dayKeys = [
             "n_dia",
@@ -1151,81 +1302,66 @@ export class ZoomService {
         }
         console.log("log 23 => dniDoc =", dniDoc);
 
-        // 2.2) CREAR HEADER SIEMPRE (aunque no haya matriculados)
-        console.log("log 24 => ensureAsistenciaHeader()");
-        const id_asistencia = await this.zoomRepository.ensureAsistenciaHeader(
-          {
-            n_codper: Number(s.n_codper) || periodo,
-            c_codmod: String(s.c_codmod),
-            c_codfac: String(s.c_codfac),
-            c_codesp: String(s.c_codesp),
-            c_codcur: String(s.c_codcur),
-            c_grpcur: String(s.c_grpcur),
-            n_codpla: Number(s.n_codpla) || 0,
-            c_sedcod: s.c_sedcod ? String(s.c_sedcod) : null,
-            c_dnidoc: dniDoc,
-            d_fecha: fechaClase,
-            tipo: "1",
-          },
-          { c_user_upd: "ZOOM_BOT" },
-          classStartIsoFixed,
-        );
+        // 2.3) Header solo si no existe por llave nueva
+        console.log("log 24 => insertHeaderIfNotExistsByNewKey()");
+        const headerId =
+          await this.zoomRepository.insertHeaderIfNotExistsByNewKey(
+            {
+              n_codper: Number(s.n_codper) || periodo,
+              c_codmod: String(s.c_codmod),
+              c_codfac: String(s.c_codfac),
+              c_codesp: String(s.c_codesp),
+              c_codcur: String(s.c_codcur),
+              c_grpcur: String(s.c_grpcur),
+              n_codpla: Number(s.n_codpla) || 0,
+              d_fecha: fechaClase,
+            },
+            { c_user_upd: "ZOOM_BOT" },
+            classStartIsoFixed,
+            {
+              c_sedcod: s.c_sedcod ? String(s.c_sedcod) : null,
+              c_dnidoc: dniDoc,
+              c_tema: "tema tema",
+              mins: 0,
+              tipo: 1,
+              auto: 0,
+            },
+          );
 
-        console.log("log 25 => id_asistencia =", id_asistencia);
-
-        // 2.3) Matriculados de ESA fila (si 0 => header queda creado, detalle no)
-        console.log("log 26 => getMatriculadosPorSincro()");
-        const mats = await this.zoomRepository.getMatriculadosPorSincro({
-          n_codper: Number(s.n_codper) || periodo,
-          c_codfac: String(s.c_codfac),
-          c_codesp: String(s.c_codesp),
-          c_codcur: String(s.c_codcur),
-          c_grpcur: String(s.c_grpcur),
-          c_codmod: String(s.c_codmod),
-          n_codpla: Number(s.n_codpla) || 0,
-        });
-
-        const matSet = new Set(mats.map((x: any) => String(x.CODIGO)));
-        console.log("log 27 => matriculados =", matSet.size);
-
-        if (matSet.size === 0) {
-          console.log("log 28 => SIN MATRICULADOS, header creado y seguimos");
+        if (!headerId) {
+          console.log("log 25.1 => SKIP: header ya existía por nueva llave");
           continue;
         }
 
-        // =========================================================
-        // ✅ 2.4) Presentes en ESA sección:
-        //     matriculados ∩ participantes
-        //     + regla 25% permanencia según duración del docente/host
-        // =========================================================
+        const id_asistencia = headerId;
+        console.log("log 25 => id_asistencia =", id_asistencia);
+
+        // 2.4) Presentes en esa sección:
+        //     (matriculados exactos del sincro) ∩ (participantes con codigo ya resuelto)
+        //     + regla 25%
         const presentesSeccion = participantes
           .map((p: any) => String(p.codigo || "").trim())
           .filter((cod: string) => {
             if (!cod) return false;
             if (!matSet.has(cod)) return false;
 
-            // Si no hay duración de clase, no aplicamos filtro 25% (fallback)
             if (minStaySec <= 0) return true;
 
             const stayed = stayByCodigo.get(cod) ?? 0;
             return stayed >= minStaySec;
           });
 
-        console.log(
-          "log 29 => presentesSeccion (con 25%) =",
-          presentesSeccion.length,
-        );
+        console.log("log 29 => presentesSeccion =", presentesSeccion.length);
 
         if (presentesSeccion.length === 0) {
-          console.log("log 30 => sin presentes para esta sección, no detalle");
+          console.log("log 30 => sin presentes, no detalle");
           continue;
         }
 
-        // 2.5) A/T por tardanza (solo para los que cumplieron 25%)
+        // 2.5) A/T por tardanza
         const rowsDet = presentesSeccion.map((cod: any) => {
           const joinMs = joinByCodigo.get(cod);
 
-          // si no puedo calcular join, por defecto A
           if (!classStartMs || joinMs == null)
             return { c_codalu: cod, c_estado: "A" };
 
@@ -1241,12 +1377,12 @@ export class ZoomService {
           tardones,
         );
 
-        // 2.6) upsert detalle
+        // 2.6) Upsert detalle
         console.log("log 32 => upsertAsistenciaDetalleConEstado()");
         await this.zoomRepository.upsertAsistenciaDetalleConEstado(
           id_asistencia,
           rowsDet,
-          classStartIsoFixed, // ✅ fecha/hora fija: inicio de clase
+          classStartIsoFixed,
         );
 
         console.log("log 33 => detalle OK id_asistencia =", id_asistencia);
