@@ -12,9 +12,9 @@ export async function zoomRouter(app: FastifyInstance) {
 
   const controller = new ZoomController(service);
 
-  app.get("/sinc/users", controller.getSincroUsuarios);
+  app.get("/sinc/users", controller.sincronizarUsuarios);
 
-  app.get("/sinc/met", controller.getReuniones);
+  // app.get("/sinc/met", controller.getReuniones);
 
-  app.get("/sinc/oc", controller.getOcurrencias);
+  // app.get("/sinc/oc", controller.getOcurrencias);
 }
