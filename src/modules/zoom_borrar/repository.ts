@@ -64,7 +64,7 @@ type AsisHeaderKeyNew = {
   c_codcur: string;
   c_grpcur: string;
   n_codpla: number;
-  d_fecha: string; // YYYY-MM-DD
+  d_fecha: string;
 };
 
 export class ZoomRepository {
