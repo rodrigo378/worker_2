@@ -73,39 +73,39 @@ export class ZoomHttpClient {
     return (await res.body.json()) as ZoomUsersResponse;
   }
 
-  // async getMeetingsRooms(
-  //   usuarioId: string,
-  //   from: string,
-  //   to: string,
-  //   pageSize: number,
-  //   nextPageToken?: string,
-  // ) {
-  //   const qs = new URLSearchParams({
-  //     from,
-  //     to,
-  //     page_size: String(pageSize),
-  //   });
+  async getMeetingsRooms(
+    usuario_id: string,
+    from: string,
+    to: string,
+    pageSize: number,
+    nextPageToken?: string,
+  ) {
+    const qs = new URLSearchParams({
+      from,
+      to,
+      page_size: String(pageSize),
+    });
 
-  //   if (nextPageToken) {
-  //     qs.set("next_page_token", nextPageToken);
-  //   }
+    if (nextPageToken) {
+      qs.set("next_page_token", nextPageToken);
+    }
 
-  //   const res = await request(
-  //     `${env.ZOOM.BASE_URL}/report/users/${usuarioId}/meetings?${qs.toString()}`,
-  //     {
-  //       method: "GET",
-  //       headers: await this.authHeaders(),
-  //     },
-  //   );
+    const res = await request(
+      `${env.ZOOM.BASE_URL}/report/users/${usuario_id}/meetings?${qs.toString()}`,
+      {
+        method: "GET",
+        headers: await this.authHeaders(),
+      },
+    );
 
-  //   if (res.statusCode < 200 || res.statusCode >= 300) {
-  //     throw new Error(
-  //       `Zoom getMeetingsRooms error ${res.statusCode}: ${await res.body.text()}`,
-  //     );
-  //   }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw new Error(
+        `Zoom getMeetingsRooms error ${res.statusCode}: ${await res.body.text()}`,
+      );
+    }
 
-  //   return (await res.body.json()) as ZoomMeetingsReportResponse;
-  // }
+    return (await res.body.json()) as ZoomMeetingsReportResponse;
+  }
 
   // async getMeetingDetail(meetingId: bigint) {
   //   const res = await request(`${env.ZOOM.BASE_URL}/meetings/${meetingId}`, {

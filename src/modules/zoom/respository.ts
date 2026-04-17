@@ -10,18 +10,18 @@ export class ZoomRepository {
     return this.registry.get(dbName);
   }
 
-  // async getZoomUsers(active: boolean = true) {
-  //   const [rows] = await this.db("API_2").raw(
-  //     `
-  //     SELECT *
-  //     FROM zoom_rooms
-  //     WHERE active = ?
-  //     `,
-  //     [active],
-  //   );
+  async getZoomUsers(active: boolean = true) {
+    const [rows] = await this.db("API_2").raw(
+      `
+      SELECT *
+      FROM zoom_rooms
+      WHERE active = ?
+      `,
+      [active],
+    );
 
-  //   return rows as Zoom_User[];
-  // }
+    return rows as Zoom_User[];
+  }
 
   async upsertZoomRoom(zoomRooms: UpsertZoomUserInput[]) {
     if (!zoomRooms.length) return true;

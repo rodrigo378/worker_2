@@ -4,8 +4,8 @@ import { UpsertZoomUserInput } from "./types/db.types";
 import { ZoomUser } from "./types/http.types";
 
 export class ZoomService {
-  // FECHA_DESDE = "2026-04-12";
-  // FECHA_HASTA = "2026-04-30";
+  FECHA_DESDE = "2026-04-12";
+  FECHA_HASTA = "2026-04-30";
 
   constructor(
     private readonly zoomHttp: ZoomHttpClient,
@@ -38,6 +38,44 @@ export class ZoomService {
     }));
 
     return await this.zoomRepository.upsertZoomRoom(map);
+  }
+
+  async sincronizarMeetingsRooms() {
+    const users = await this.zoomRepository.getZoomUsers();
+    const page_size = 300;
+
+    const meetings = [];
+
+    for (const user of users) {
+      let next_page_token = "";
+
+      while (next_page_token) {
+        const res = await this.zoomHttp.getMeetingsRooms(
+          user.zoom_user_id,
+          this.FECHA_DESDE,
+          this.FECHA_HASTA,
+          page_size,
+          next_page_token,
+        );
+
+        next_page_token = res.next_page_token || "";
+        meetings.push(res.meetings);
+      }
+
+      // const res = await this.zoomHttp.getMeetingsRooms(
+      //   user.zoom_user_id,
+      //   this.FECHA_DESDE,
+      //   this.FECHA_HASTA,
+      //   page_size,
+      //   next_page_token,
+      // );
+
+      // const page_count = res.page_count;
+
+      // for (let i = 2; i <= page_count; i++) {
+
+      // }
+    }
   }
 
   // async getReuniones() {
