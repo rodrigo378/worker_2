@@ -21,103 +21,127 @@ export interface Zoom_User {
   updated_at: Date;
 }
 
-// // ===================================================================================
-// export interface ZoomMeeting {
-//   id: bigint;
-//   room_id: bigint;
-//   shortname: string | null;
-//   courseid: number | null;
-//   zoom_meeting_id: bigint;
-//   topic: string | null;
-//   agenda: string | null;
-//   type: number | null;
-//   timezone: string | null;
-//   join_url: string | null;
-//   start_url: string | null;
-//   host_id: string | null;
-//   created_at: Date;
-//   updated_at: Date;
-//   room?: Zoom_User;
-//   occurrences?: ZoomMeetingOccurrence[];
-//   instances?: ZoomMeetingInstance[];
-// }
+export interface Zoom_Meeting {
+  id: bigint;
+  room_id: bigint;
+  shortname?: string | null;
+  courseid?: number | null;
+  zoom_meeting_id: bigint;
+  topic?: string | null;
+  agenda?: string | null;
+  type?: number | null;
+  joinUrl?: string | null;
+  startUrl?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 
-// // ===================================================================================
-// export interface ZoomMeetingOccurrence {
-//   id: bigint;
-//   meeting_id: bigint;
-//   occurrence_id: string;
-//   start_time: Date | null;
-//   duration: number | null;
-//   status: string | null;
-//   deleted: boolean;
-//   created_at: Date;
-//   updated_at: Date;
-//   meeting?: ZoomMeeting;
-// }
+  room: Zoom_User;
+  occurrences?: Zoom_MeetingOccurrence[];
+  // instances?: ZoomMeetingInstance[];
+}
 
-// // ===================================================================================
-// export interface ZoomMeetingInstance {
-//   id: bigint;
-//   meeting_id: bigint;
-//   occurrence_id: string | null;
-//   uuid: string;
-//   start_time: Date | null;
-//   end_time: Date | null;
-//   duration: number | null;
-//   status: string | null;
-//   created_at: Date;
-//   updated_at: Date;
-//   meeting?: ZoomMeeting;
-//   details?: ZoomMeetingDetail | null;
-//   participants?: ZoomMeetingParticipant[];
-// }
+// ===================================================================================
+export interface Zoom_MeetingOccurrence {
+  id: bigint;
+  meeting_id: bigint;
+  occurrence_id: string;
+  start_time: Date | null;
+  duration: number | null;
+  status: string | null;
+  // deleted: boolean;
+  created_at: Date;
+  updated_at: Date;
+  meeting?: Zoom_Meeting;
+}
 
-// // ===================================================================================
-// export interface ZoomMeetingDetail {
-//   id: bigint;
-//   instance_id: bigint;
-//   topic: string | null;
-//   host_id: string | null;
-//   host_name: string | null;
-//   participants_count: number | null;
-//   raw_json: unknown | null;
-//   synced_at: Date | null;
-//   created_at: Date;
-//   updated_at: Date;
-//   instance?: ZoomMeetingInstance;
-// }
+// ===================================================================================
+export interface Zoom_MeetingInstance {
+  id: bigint;
+  meeting_id: bigint;
+  occurrence_id: string | null;
+  uuid: string;
+  start_time: Date | null;
+  end_time: Date | null;
+  duration: number | null;
+  status: string | null;
 
-// // ===================================================================================
-// export interface ZoomMeetingParticipant {
-//   id: bigint;
-//   instance_id: bigint;
-//   zoom_user_id: string | null;
-//   role: string | null;
-//   name: string | null;
-//   email: string | null;
-//   c_dnidoc: string | null;
-//   c_codalu: string | null;
-//   c_codfac: string | null;
-//   c_codesp: string | null;
-//   c_codmod: string | null;
-//   join_time: Date | null;
-//   leave_time: Date | null;
-//   duration: number | null;
-//   created_at: Date;
-//   updated_at: Date;
-//   instance?: ZoomMeetingInstance;
-// }
+  participantsSynced: boolean;
+  participantsProcessed: boolean;
 
-// // ===================================================================================
-// export interface ZoomSyncLog {
-//   id: bigint;
-//   room_id: bigint | null;
-//   meeting_id: bigint | null;
-//   instance_id: bigint | null;
-//   type: string;
-//   status: string;
-//   message: string | null;
-//   created_at: Date;
-//   updated_at: Date;
-// }
+  created_at: Date;
+  updated_at: Date;
+  // meeting?: ZoomMeeting;
+  // details?: ZoomMeetingDetail | null;
+  // participants?: ZoomMeetingParticipant[];
+}
+
+export interface Zoom_MeetingParticipantRaw {
+  id: bigint;
+  instance_id: bigint;
+
+  // Identidad de Zoom
+  participant_id?: string | null;
+  participant_user_id?: string | null;
+  user_id?: string | null;
+
+  name?: string | null;
+  email?: string | null;
+
+  // tiempos
+  joinTime?: Date | null;
+  leaveTime?: Date | null;
+  duration?: number | null;
+
+  status?: string | null;
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Zoom_AttendanceConfig {
+  id: number;
+  gap: number;
+  lateToleranceMinutes: number;
+  minAttendancePercentage: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+type Session = {
+  join: Date;
+  leave: Date;
+  duration: number;
+};
+
+export interface Zoom_MeetingParticipant {
+  id: bigint;
+  instance_id: bigint;
+
+  // identidad ya consolidada
+  zoomUser_id?: string | null;
+  name?: string | null;
+  email?: string | null;
+  role?: string | null;
+
+  // datos académicos
+  cDnidoc?: string | null;
+  cCodalu?: string | null;
+  cCodfac?: string | null;
+  cCodesp?: string | null;
+  cCodmod?: string | null;
+
+  // resultado final (mergeado)
+  firstJoin?: Date | null;
+  lastLeave?: Date | null;
+  duration?: number | null;
+
+  // 👇 AQUÍ
+  sessions?: Session[] | null;
+
+  // lógica de negocio
+  attendance?: boolean | null;
+  late?: boolean | null;
+
+  createdAt: Date;
+  updatedAt: Date;
+}

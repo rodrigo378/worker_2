@@ -23,12 +23,14 @@
     "knex": "^3.1.0",
     "luxon": "^3.7.2",
     "mysql2": "^3.17.2",
+    "node-schedule": "^2.1.1",
     "undici": "^7.22.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/luxon": "^3.7.1",
     "@types/node": "^25.2.3",
+    "@types/node-schedule": "^2.1.8",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",

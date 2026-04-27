@@ -1,11 +1,17 @@
 import { ZoomHttpClient } from "./http";
 import { ZoomRepository } from "./respository";
-import { UpsertZoomUserInput } from "./types/db.types";
+import {
+  UpsertZoomUserInput,
+  Zoom_Meeting,
+  Zoom_MeetingInstance,
+  Zoom_MeetingOccurrence,
+  Zoom_MeetingParticipant,
+} from "./types/db.types";
 import { ZoomUser } from "./types/http.types";
 
 export class ZoomService {
-  FECHA_DESDE = "2026-04-12";
-  FECHA_HASTA = "2026-04-30";
+  // FECHA_DESDE = new Date()
+  // FECHA_HASTA = "2026-04-30";
 
   constructor(
     private readonly zoomHttp: ZoomHttpClient,
@@ -28,8 +34,7 @@ export class ZoomService {
     }
 
     const map: UpsertZoomUserInput[] = usuarios.map((usuario) => ({
-      zoom_user_id: usuario.id,
-
+      zoom_user_id: String(usuario.id),
       first_name: usuario.first_name ?? null,
       last_name: usuario.last_name ?? null,
       display_name: usuario.display_name ?? null,
@@ -41,175 +46,400 @@ export class ZoomService {
   }
 
   async sincronizarMeetingsRooms() {
-    const users = await this.zoomRepository.getZoomUsers();
+    const desdeDate = new Date();
+    desdeDate.setDate(desdeDate.getDate() - 7);
+
+    const hastaDate = new Date();
+    hastaDate.setDate(hastaDate.getDate() + 30);
+
+    const from: string = desdeDate.toISOString().slice(0, 10);
+    const to: string = hastaDate.toISOString().slice(0, 10);
+    const users = await this.zoomRepository.getZoomUsers({ active: true });
     const page_size = 300;
 
-    const meetings = [];
+    const meetings: Partial<Zoom_Meeting>[] = [];
+    const ocurrences: Partial<Zoom_MeetingOccurrence>[] = [];
 
     for (const user of users) {
       let next_page_token = "";
 
-      while (next_page_token) {
+      do {
         const res = await this.zoomHttp.getMeetingsRooms(
           user.zoom_user_id,
-          this.FECHA_DESDE,
-          this.FECHA_HASTA,
+          from,
+          to,
           page_size,
           next_page_token,
         );
 
         next_page_token = res.next_page_token || "";
-        meetings.push(res.meetings);
+
+        res.meetings.map((meeting) => {
+          meetings.push({
+            room_id: user.id,
+            zoom_meeting_id: meeting.id,
+            topic: meeting.topic ?? "",
+            type: meeting.type ?? null,
+          });
+        });
+      } while (next_page_token);
+    }
+
+    for (const meeting of meetings) {
+      const details = await this.zoomHttp.getMeetingsRoomsDetails(
+        meeting.zoom_meeting_id!,
+      );
+      const shortname =
+        details.tracking_fields?.find(
+          (f) => f.field?.trim().toLowerCase() === "shortname",
+        )?.value ?? null;
+
+      meeting.shortname = shortname;
+      meeting.agenda = details.agenda ?? "";
+
+      ocurrences.push(
+        ...(details.occurrences?.map((oc) => ({
+          meeting_id: meeting.zoom_meeting_id!,
+          occurrence_id: String(oc.occurrence_id),
+          start_time: oc.start_time ? new Date(oc.start_time) : null,
+          duration: oc.duration ?? null,
+          status: oc.status ?? null,
+        })) ?? []),
+      );
+    }
+
+    const shortnames = [
+      ...new Set(
+        meetings
+          .map((m) => m.shortname?.trim())
+          .filter((s): s is string => !!s),
+      ),
+    ];
+
+    const courseids =
+      await this.zoomRepository.getCourseIdsByShortnames(shortnames);
+
+    const courseIdsMap = new Map(
+      courseids.map((c) => [c.shortname, c.courseid]),
+    );
+
+    for (const meeting of meetings) {
+      const key = meeting.shortname;
+      meeting.courseid = key ? (courseIdsMap.get(key) ?? null) : null;
+    }
+    await this.zoomRepository.upsertZoomMeetings(meetings);
+
+    const meetingsBd = await this.zoomRepository.getMeetings();
+    const meetingsMap = new Map(
+      meetingsBd.map((m) => [m.zoom_meeting_id, m.id]),
+    );
+
+    const occurrencesFinal: Partial<Zoom_MeetingOccurrence>[] = [];
+
+    for (const oc of ocurrences) {
+      const meetingId = meetingsMap.get(oc.meeting_id!);
+
+      if (!meetingId) {
+        console.log("no tiene => ", meetingId);
+        continue;
       }
 
-      // const res = await this.zoomHttp.getMeetingsRooms(
-      //   user.zoom_user_id,
-      //   this.FECHA_DESDE,
-      //   this.FECHA_HASTA,
-      //   page_size,
-      //   next_page_token,
-      // );
-
-      // const page_count = res.page_count;
-
-      // for (let i = 2; i <= page_count; i++) {
-
-      // }
+      occurrencesFinal.push({
+        meeting_id: meetingId,
+        occurrence_id: String(oc.occurrence_id),
+        start_time: oc.start_time ? new Date(oc.start_time) : null,
+        duration: oc.duration ?? null,
+        status: oc.status ?? null,
+      });
     }
+
+    await this.zoomRepository.upsertZoomMeetingOccurrences(occurrencesFinal);
+
+    return true;
   }
 
-  // async getReuniones() {
-  //   const rooms = await this.zoomRepository.getZoomRooms();
-  //   const page_size = 300;
+  async sincronizarInstancias() {
+    const meetingRooms = await this.zoomRepository.getMeetings();
 
-  //   const meetingsPerUser = await mapWithConcurrency(rooms, 3, async (u) => {
-  //     const resp = await this.zoomHttp.getMeetingsRooms(
-  //       u.zoom_user_id,
-  //       this.FECHA_DESDE,
-  //       this.FECHA_HASTA,
-  //       page_size,
-  //     );
+    const instances: Partial<Zoom_MeetingInstance>[] = [];
 
-  //     return resp.meetings.map((meeting) => ({
-  //       ...meeting,
-  //       room_id: u.id,
-  //     }));
-  //   });
+    for (const mr of meetingRooms) {
+      const res = await this.zoomHttp.getMeetingInstances(mr.zoom_meeting_id);
 
-  //   const reuniones = meetingsPerUser.flat();
-  //   const now = new Date();
+      instances.push(
+        ...res.meetings.map((m) => ({
+          uuid: m.uuid,
+          start_time: m.start_time ? new Date(m.start_time) : null,
+          meeting_id: mr.id,
+        })),
+      );
+    }
 
-  //   const meetingsToSave: Partial<ZoomMeeting>[] = reuniones.map((r) => ({
-  //     room_id: r.room_id,
-  //     zoom_meeting_id: BigInt(r.id),
-  //     topic: r.topic ?? null,
-  //     agenda: null,
-  //     type: r.type ?? null,
-  //     timezone: null,
-  //     join_url: null,
-  //     start_url: null,
-  //     host_id: r.host_id ?? null,
-  //     created_at: now,
-  //     updated_at: now,
-  //   }));
+    await this.zoomRepository.upsertZoomMeetingInstances(instances);
+    return instances;
+  }
 
-  //   await this.zoomRepository.upsertZoomMeetings(meetingsToSave);
+  async sincronizarParticipantesRaw() {
+    const instances = await this.zoomRepository.getInstances({
+      participantsSynced: false,
+    });
 
-  //   return reuniones;
-  // }
+    for (const instance of instances) {
+      try {
+        let nextPageToken: string | undefined = undefined;
+        const participants = [];
 
-  // async getOcurrencias() {
-  //   const meetings = await this.zoomRepository.getMeetings();
+        do {
+          const res = await this.zoomHttp.getMeetingReportDetailParticipants(
+            instance.uuid,
+            nextPageToken,
+          );
 
-  //   const ocurrencias: Partial<ZoomMeetingOccurrence>[] = [];
-  //   const instancesRows: Partial<ZoomMeetingInstance>[] = [];
-  //   const now = new Date();
+          participants.push(...(res.participants ?? []));
 
-  //   for (const meeting of meetings) {
-  //     const detalle = await this.zoomHttp.getMeetingDetail(
-  //       meeting.zoom_meeting_id,
-  //     );
+          nextPageToken = res.next_page_token;
+        } while (nextPageToken);
 
-  //     const instances = await this.zoomHttp.getMeetingInstances(
-  //       meeting.zoom_meeting_id,
-  //     );
+        const rows = participants.map((p) => ({
+          instance_id: instance.id,
 
-  //     const shortname =
-  //       detalle.tracking_fields?.find(
-  //         (f) => f.field?.trim().toLowerCase() === "shortname",
-  //       )?.value ?? null;
+          participant_id: p.id ?? null,
+          participant_user_id: p.participant_user_id ?? null,
+          user_id: p.user_id ?? null,
 
-  //     const courseid = shortname
-  //       ? await this.zoomRepository.getCourseid(shortname)
-  //       : null;
+          name: p.name ?? null,
+          email: p.user_email ?? null,
 
-  //     await this.zoomRepository.updateMeetingShortname(
-  //       meeting.zoom_meeting_id,
-  //       shortname,
-  //       courseid,
-  //     );
+          joinTime: p.join_time ? new Date(p.join_time) : null,
+          leaveTime: p.leave_time ? new Date(p.leave_time) : null,
+          duration: p.duration ?? null,
 
-  //     if (detalle.occurrences?.length) {
-  //       const rows: Partial<ZoomMeetingOccurrence>[] = detalle.occurrences.map(
-  //         (o) => ({
-  //           meeting_id: meeting.id,
-  //           occurrence_id: o.occurrence_id,
-  //           start_time: o.start_time ? new Date(o.start_time) : null,
-  //           duration: o.duration ?? null,
-  //           status: o.status ?? null,
-  //           deleted: false,
-  //           created_at: now,
-  //           updated_at: now,
-  //         }),
-  //       );
+          status: p.status ?? null,
+        }));
 
-  //       ocurrencias.push(...rows);
-  //     }
+        if (rows.length > 0) {
+          await this.zoomRepository.insertZoomMeetingParticipantRaw(rows);
+        }
 
-  //     if (instances.meetings?.length) {
-  //       for (const item of instances.meetings) {
-  //         const detail = await this.zoomHttp.getMeetingReportDetail(item.uuid);
+        await this.zoomRepository.upsertZoomMeetingInstances([
+          {
+            uuid: instance.uuid,
+            meeting_id: instance.meeting_id,
+            participantsSynced: true,
+            updated_at: new Date(),
+          },
+        ]);
+      } catch (error) {
+        console.error(
+          `Error sincronizando participants instance ${instance.id}`,
+          error,
+        );
+      }
+    }
 
-  //         const matchedOccurrence = detalle.occurrences?.find((o) => {
-  //           if (!o.start_time || !item.start_time) return false;
-  //           return (
-  //             new Date(o.start_time).getTime() ===
-  //             new Date(item.start_time).getTime()
-  //           );
-  //         });
+    return true;
+  }
 
-  //         instancesRows.push({
-  //           meeting_id: meeting.id,
-  //           occurrence_id:
-  //             detail.occurrence_id ?? matchedOccurrence?.occurrence_id ?? null,
-  //           uuid: item.uuid,
-  //           start_time: detail.start_time
-  //             ? new Date(detail.start_time)
-  //             : item.start_time
-  //               ? new Date(item.start_time)
-  //               : null,
-  //           end_time: detail.end_time ? new Date(detail.end_time) : null,
-  //           duration: detail.duration ?? null,
-  //           status: detail.status ?? null,
-  //           created_at: now,
-  //           updated_at: now,
-  //         });
-  //       }
-  //     }
-  //   }
+  async sincronizarParticipantes() {
+    const config = await this.zoomRepository.getAttendanceConfig();
+    const gapMs = config.gap * 60 * 1000;
+    const rooms = (
+      await this.zoomRepository.getZoomUsers({ role: "host" })
+    ).map((z) => z.zoom_user_id);
 
-  //   if (ocurrencias.length) {
-  //     await this.zoomRepository.upsertZoomMeetingOccurrences(ocurrencias);
-  //   }
+    const instances = await this.zoomRepository.getInstances({
+      participantsProcessed: false,
+    });
 
-  //   if (instancesRows.length) {
-  //     await this.zoomRepository.upsertZoomMeetingInstances(instancesRows);
-  //   }
+    for (const instance of instances) {
+      const raw = await this.zoomRepository.getZoomMeetingParticipantRaw(
+        instance.id,
+      );
+      const matriculados = await this.zoomRepository.getMatriculadosCourseid(
+        instance.courseid,
+      );
 
-  //   return {
-  //     msg: "ok",
-  //     totalOccurrences: ocurrencias.length,
-  //     totalInstances: instancesRows.length,
-  //   };
-  // }
+      const map = new Map<string, any[]>();
+
+      for (const p of raw) {
+        const key =
+          p.email?.trim().toLowerCase() ||
+          p.name?.trim().toUpperCase() ||
+          `unknown_${p.user_id ?? Math.random()}`;
+
+        if (!map.has(key)) {
+          map.set(key, []);
+        }
+
+        const arr = map.get(key)!;
+        arr.push(p);
+      }
+
+      const procesados: Partial<Zoom_MeetingParticipant>[] = [];
+
+      //===================================================================
+      for (const [, sesiones] of map.entries()) {
+        sesiones.sort(
+          (a, b) =>
+            new Date(a.join_time).getTime() - new Date(b.join_time).getTime(),
+        );
+
+        let actual: any = null;
+
+        const bloques: {
+          join: Date;
+          leave: Date;
+          duration: number;
+        }[] = [];
+
+        for (const s of sesiones) {
+          const join = new Date(s.join_time);
+          const leave = new Date(s.leave_time);
+
+          if (!actual) {
+            actual = { ...s };
+            continue;
+          }
+
+          const gap = join.getTime() - new Date(actual.leave_time).getTime();
+
+          const overlap =
+            join.getTime() <= new Date(actual.leave_time).getTime();
+
+          if (gap <= gapMs || overlap) {
+            // 🔗 merge
+            actual.leave_time = new Date(
+              Math.max(leave.getTime(), new Date(actual.leave_time).getTime()),
+            );
+          } else {
+            // 🔹 guardar bloque
+            const start = new Date(actual.join_time);
+            const end = new Date(actual.leave_time);
+
+            bloques.push({
+              join: start,
+              leave: end,
+              duration: (end.getTime() - start.getTime()) / 1000,
+            });
+
+            actual = { ...s };
+          }
+        }
+
+        if (actual) {
+          const start = new Date(actual.join_time);
+          const end = new Date(actual.leave_time);
+
+          bloques.push({
+            join: start,
+            leave: end,
+            duration: (end.getTime() - start.getTime()) / 1000,
+          });
+        }
+
+        const firstJoin = bloques[0]?.join ?? null;
+        const lastLeave = bloques[bloques.length - 1]?.leave ?? null;
+        const totalDuration = bloques.reduce((sum, b) => sum + b.duration, 0);
+
+        procesados.push({
+          instance_id: instance.id,
+          zoomUser_id: sesiones[0].participant_id ?? null,
+          name: sesiones[0].name ?? null,
+          email: sesiones[0].email ?? null,
+          firstJoin,
+          lastLeave,
+          duration: totalDuration,
+          sessions: bloques,
+          attendance: null,
+          late: null,
+        });
+      }
+      //===================================================================
+
+      //Procesar host
+      const host = procesados.find((pr) =>
+        rooms.includes(pr.zoomUser_id ?? ""),
+      );
+      if (!host) {
+        continue;
+      }
+
+      const sessions = host?.sessions ?? [];
+      const start_time = sessions[0]?.join;
+      const end_time = sessions[sessions.length - 1]?.leave;
+      const duration = sessions.reduce((sum, s) => sum + s.duration, 0);
+      host.role = "host";
+      host.cDnidoc = "22222222";
+
+      for (const procesado of procesados) {
+        if (procesado.role === "host") continue;
+
+        const matriculado = matriculados.find((m) => {
+          if (procesado.email && m.c_email_institucional) {
+            return (
+              procesado.email.trim().toLowerCase() ===
+              m.c_email_institucional.trim().toLowerCase()
+            );
+          }
+          if (procesado.name && m.nombre) {
+            const palabrasZoom = procesado.name
+              .trim()
+              .toUpperCase()
+              .split(/\s+/);
+            if (palabrasZoom.length < 2) return false;
+            const nombreMatriculado = m.nombre.trim().toUpperCase();
+            return palabrasZoom.every((palabra) =>
+              nombreMatriculado.includes(palabra),
+            );
+          }
+          return false;
+        });
+
+        procesado.cCodalu = matriculado?.c_codalu
+          ? String(matriculado.c_codalu)
+          : null;
+        procesado.cCodfac = matriculado?.c_codfac ?? null;
+        procesado.cCodesp = matriculado?.c_codesp ?? null;
+        procesado.cCodmod = matriculado?.c_codmod
+          ? String(matriculado.c_codmod)
+          : null;
+
+        procesado.role = "student";
+        // Attendance
+        if (start_time && end_time && procesado.duration != null) {
+          const meetingDuration =
+            (end_time.getTime() - start_time.getTime()) / 1000; // en segundos
+          const percentage = procesado.duration / meetingDuration;
+          procesado.attendance = percentage >= config.minAttendancePercentage;
+        } else {
+          procesado.attendance = false;
+        }
+
+        // Late
+        if (start_time && procesado.firstJoin) {
+          const toleranceMs = config.lateToleranceMinutes * 60 * 1000;
+          const diff = procesado.firstJoin.getTime() - start_time.getTime();
+          procesado.late = diff > toleranceMs;
+        } else {
+          procesado.late = null;
+        }
+      }
+
+      await this.zoomRepository.insertZoomMeetingParticipants(procesados);
+
+      // await this.zoomRepository.upsertZoomMeetingInstances([
+      //   {
+      //     uuid: instance.uuid,
+      //     meeting_id: instance.meeting_id,
+      //     start_time: start_time ? new Date(start_time) : null,
+      //     end_time: end_time ? new Date(end_time) : null,
+      //     duration,
+      //     // participantsProcessed: true,
+      //     updated_at: new Date(),
+      //   },
+      // ]);
+    }
+
+    return true;
+  }
 }

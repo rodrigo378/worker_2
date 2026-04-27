@@ -2,6 +2,7 @@ import { request } from "undici";
 import { env } from "../../core/config/env";
 import {
   ZoomMeetingDetail,
+  ZoomMeetingParticipantsResponse,
   ZoomMeetingReportDetail,
   ZoomMeetingsReportResponse,
   ZoomPastMeetingInstancesResponse,
@@ -107,56 +108,66 @@ export class ZoomHttpClient {
     return (await res.body.json()) as ZoomMeetingsReportResponse;
   }
 
-  // async getMeetingDetail(meetingId: bigint) {
-  //   const res = await request(`${env.ZOOM.BASE_URL}/meetings/${meetingId}`, {
-  //     method: "GET",
-  //     headers: await this.authHeaders(),
-  //   });
+  async getMeetingsRoomsDetails(room_id: bigint) {
+    const res = await request(`${env.ZOOM.BASE_URL}/meetings/${room_id}`, {
+      method: "GET",
+      headers: await this.authHeaders(),
+    });
 
-  //   if (res.statusCode < 200 || res.statusCode >= 300) {
-  //     throw new Error(
-  //       `Zoom getMeetingDetail error ${res.statusCode}: ${await res.body.text()}`,
-  //     );
-  //   }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw new Error(
+        `Zoom getMeetingsRooms error ${res.statusCode}: ${await res.body.text()}`,
+      );
+    }
 
-  //   return (await res.body.json()) as ZoomMeetingDetail;
-  // }
+    return (await res.body.json()) as ZoomMeetingDetail;
+  }
 
-  // async getMeetingInstances(meetingId: bigint) {
-  //   const res = await request(
-  //     `${env.ZOOM.BASE_URL}/past_meetings/${meetingId}/instances`,
-  //     {
-  //       method: "GET",
-  //       headers: await this.authHeaders(),
-  //     },
-  //   );
+  async getMeetingInstances(meeting_id: bigint) {
+    const res = await request(
+      `${env.ZOOM.BASE_URL}/past_meetings/${meeting_id}/instances`,
+      {
+        method: "GET",
+        headers: await this.authHeaders(),
+      },
+    );
 
-  //   if (res.statusCode < 200 || res.statusCode >= 300) {
-  //     throw new Error(
-  //       `Zoom getMeetingInstances error ${res.statusCode}: ${await res.body.text()}`,
-  //     );
-  //   }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw new Error(
+        `Zoom getMeetingInstances error ${res.statusCode}: ${await res.body.text()}`,
+      );
+    }
 
-  //   return (await res.body.json()) as ZoomPastMeetingInstancesResponse;
-  // }
+    return (await res.body.json()) as ZoomPastMeetingInstancesResponse;
+  }
 
-  // async getMeetingReportDetail(meetingUUID: string) {
-  //   const encodedUUID = encodeURIComponent(encodeURIComponent(meetingUUID));
+  async getMeetingReportDetailParticipants(
+    meetingUUID: string,
+    nextPageToken?: string,
+  ) {
+    const encodedUUID = encodeURIComponent(encodeURIComponent(meetingUUID));
 
-  //   const res = await request(
-  //     `${env.ZOOM.BASE_URL}/report/meetings/${encodedUUID}`,
-  //     {
-  //       method: "GET",
-  //       headers: await this.authHeaders(),
-  //     },
-  //   );
+    const url = new URL(
+      `${env.ZOOM.BASE_URL}/report/meetings/${encodedUUID}/participants`,
+    );
 
-  //   if (res.statusCode < 200 || res.statusCode >= 300) {
-  //     throw new Error(
-  //       `Zoom getMeetingReportDetail error ${res.statusCode}: ${await res.body.text()}`,
-  //     );
-  //   }
+    url.searchParams.set("page_size", "300");
 
-  //   return (await res.body.json()) as ZoomMeetingReportDetail;
-  // }
+    if (nextPageToken) {
+      url.searchParams.set("next_page_token", nextPageToken);
+    }
+
+    const res = await request(url.toString(), {
+      method: "GET",
+      headers: await this.authHeaders(),
+    });
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw new Error(
+        `Zoom getMeetingParticipants error ${res.statusCode}: ${await res.body.text()}`,
+      );
+    }
+
+    return (await res.body.json()) as ZoomMeetingParticipantsResponse;
+  }
 }
