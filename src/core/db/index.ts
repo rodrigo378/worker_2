@@ -14,11 +14,15 @@ export async function initDb(connections: DbConn[]) {
         user: c.user,
         password: c.password,
         database: c.database,
-        // ssl: c.ssl ? { rejectUnauthorized: false } : undefined,
+        connectTimeout: 600000,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 0,
       },
       pool: {
-        // min: c.poolMin ?? 0,
-        // max: c.poolMax ?? 10,
+        min: 0,
+        max: 10,
+        acquireTimeoutMillis: 120000,
+        idleTimeoutMillis: 3600000,
       },
     });
 

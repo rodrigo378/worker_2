@@ -67,6 +67,7 @@ export interface Zoom_MeetingInstance {
 
   participantsSynced: boolean;
   participantsProcessed: boolean;
+  attendance_status: "PENDING" | "UPLOADED" | "ALREADY_EXISTS";
 
   created_at: Date;
   updated_at: Date;
@@ -124,11 +125,11 @@ export interface Zoom_MeetingParticipant {
   role?: string | null;
 
   // datos académicos
-  cDnidoc?: string | null;
-  cCodalu?: string | null;
-  cCodfac?: string | null;
-  cCodesp?: string | null;
-  cCodmod?: string | null;
+  c_dnidoc?: string | null;
+  c_codalu?: string | null;
+  c_codfac?: string | null;
+  c_codesp?: string | null;
+  c_codmod?: string | null;
 
   // resultado final (mergeado)
   firstJoin?: Date | null;

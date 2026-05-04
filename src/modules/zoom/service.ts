@@ -52,8 +52,8 @@ export class ZoomService {
     const hastaDate = new Date();
     hastaDate.setDate(hastaDate.getDate() + 30);
 
-    const from: string = desdeDate.toISOString().slice(0, 10);
-    const to: string = hastaDate.toISOString().slice(0, 10);
+    const from: string = desdeDate.toISOString();
+    const to: string = hastaDate.toISOString();
     const users = await this.zoomRepository.getZoomUsers({ active: true });
     const page_size = 300;
 
@@ -71,10 +71,13 @@ export class ZoomService {
           page_size,
           next_page_token,
         );
+        console.log("res => ", res);
 
         next_page_token = res.next_page_token || "";
 
         res.meetings.map((meeting) => {
+          if (meeting.type === 1) return;
+
           meetings.push({
             room_id: user.id,
             zoom_meeting_id: meeting.id,
@@ -86,6 +89,8 @@ export class ZoomService {
     }
 
     for (const meeting of meetings) {
+      console.log("meeting => ", meeting);
+
       const details = await this.zoomHttp.getMeetingsRoomsDetails(
         meeting.zoom_meeting_id!,
       );
@@ -164,6 +169,8 @@ export class ZoomService {
     const instances: Partial<Zoom_MeetingInstance>[] = [];
 
     for (const mr of meetingRooms) {
+      console.log("mr => ", mr);
+
       const res = await this.zoomHttp.getMeetingInstances(mr.zoom_meeting_id);
 
       instances.push(
@@ -185,6 +192,8 @@ export class ZoomService {
     });
 
     for (const instance of instances) {
+      console.log("instance => ", instance);
+
       try {
         let nextPageToken: string | undefined = undefined;
         const participants = [];
@@ -249,9 +258,12 @@ export class ZoomService {
 
     const instances = await this.zoomRepository.getInstances({
       participantsProcessed: false,
+      participantsSynced: true,
     });
 
     for (const instance of instances) {
+      console.log("instance => ", instance);
+
       const raw = await this.zoomRepository.getZoomMeetingParticipantRaw(
         instance.id,
       );
@@ -369,7 +381,30 @@ export class ZoomService {
       const end_time = sessions[sessions.length - 1]?.leave;
       const duration = sessions.reduce((sum, s) => sum + s.duration, 0);
       host.role = "host";
-      host.cDnidoc = "22222222";
+
+      const n_numdia = start_time ? start_time.getDay() : null; // 0=Dom, 1=Lun... 6=Sab
+
+      const docentesSigu = await this.zoomRepository.getDocentes(
+        instance.courseid,
+        n_numdia!,
+      );
+
+      let docenteDni: string | null = null;
+      if (docentesSigu.length === 1) {
+        docenteDni = docentesSigu[0]?.c_dnidoc ?? null;
+      } else if (docentesSigu.length > 1 && start_time) {
+        const hostHour = start_time.getHours().toString().padStart(2, "0");
+
+        const match = docentesSigu.find((d: any) => {
+          const horaDocente = String(d.c_hh_ini ?? "").padStart(2, "0");
+          return horaDocente === hostHour;
+        });
+
+        docenteDni = match?.c_dnidoc ?? docentesSigu[0]?.c_dnidoc ?? null;
+      }
+
+      host.c_dnidoc = docenteDni;
+      // host.cDnidoc = "22222222";
 
       for (const procesado of procesados) {
         if (procesado.role === "host") continue;
@@ -395,12 +430,12 @@ export class ZoomService {
           return false;
         });
 
-        procesado.cCodalu = matriculado?.c_codalu
+        procesado.c_codalu = matriculado?.c_codalu
           ? String(matriculado.c_codalu)
           : null;
-        procesado.cCodfac = matriculado?.c_codfac ?? null;
-        procesado.cCodesp = matriculado?.c_codesp ?? null;
-        procesado.cCodmod = matriculado?.c_codmod
+        procesado.c_codfac = matriculado?.c_codfac ?? null;
+        procesado.c_codesp = matriculado?.c_codesp ?? null;
+        procesado.c_codmod = matriculado?.c_codmod
           ? String(matriculado.c_codmod)
           : null;
 
@@ -427,19 +462,75 @@ export class ZoomService {
 
       await this.zoomRepository.insertZoomMeetingParticipants(procesados);
 
-      // await this.zoomRepository.upsertZoomMeetingInstances([
-      //   {
-      //     uuid: instance.uuid,
-      //     meeting_id: instance.meeting_id,
-      //     start_time: start_time ? new Date(start_time) : null,
-      //     end_time: end_time ? new Date(end_time) : null,
-      //     duration,
-      //     // participantsProcessed: true,
-      //     updated_at: new Date(),
-      //   },
-      // ]);
+      await this.zoomRepository.upsertZoomMeetingInstances([
+        {
+          uuid: instance.uuid,
+          meeting_id: instance.meeting_id,
+          start_time: start_time ? new Date(start_time) : null,
+          end_time: end_time ? new Date(end_time) : null,
+          duration,
+          participantsProcessed: true,
+          updated_at: new Date(),
+        },
+      ]);
     }
 
     return true;
+  }
+
+  async sincronizarAsistencias() {
+    const instances = await this.zoomRepository.getInstances({
+      attendance_status: "PENDING",
+    });
+
+    for (const instance of instances) {
+      if (!instance.courseid) {
+        console.warn(`Instance ${instance.id} sin courseid, skipeando`);
+        continue;
+      }
+
+      console.log("====================================");
+      console.log("instance => ", instance);
+
+      const d_fecha = instance.start_time
+        ? new Date(instance.start_time.getTime() - 5 * 60 * 60 * 1000)
+            .toISOString()
+            .slice(0, 10)
+        : null;
+
+      const dniDocente = await this.zoomRepository.getDocenteParticipantes(
+        instance.id,
+      );
+      console.log("aca dniDocente => ", dniDocente);
+
+      console.log("courseid => ", instance.courseid);
+      console.log("d_fecha => ", d_fecha);
+      console.log("cDnidoc => ", dniDocente?.c_dnidoc);
+
+      const sesion = await this.zoomRepository.sesionExistente(
+        instance.courseid,
+        d_fecha ?? "",
+        dniDocente?.c_dnidoc ?? "",
+      );
+      console.log("sesion => ", sesion);
+
+      if (sesion && sesion.length > 0) {
+        console.log("sesion existente => ", instance.id);
+
+        await this.zoomRepository.upsertZoomMeetingInstances([
+          {
+            uuid: instance.uuid,
+            meeting_id: instance.meeting_id,
+            attendance_status: "ALREADY_EXISTS",
+            updated_at: new Date(),
+          },
+        ]);
+        continue;
+      }
+
+      console.log("sesion pendiente => ", instance.id);
+
+      console.log("====================================");
+    }
   }
 }

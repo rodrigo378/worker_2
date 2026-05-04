@@ -14,6 +14,10 @@ const BaseEnvSchema = z.object({
   ZOOM_OAUTH_CLIENT_ID: z.string(),
   ZOOM_OAUTH_CLIENT_SECRET: z.string(),
   ZOOM_API_BASE: z.string(),
+
+  REDIS_HOST: z.string(),
+  REDIS_PORT: z.coerce.number(),
+  REDIS_PASSWORD: z.string().optional(),
 });
 
 const base = BaseEnvSchema.parse(process.env);
@@ -44,6 +48,12 @@ export const env = {
     ACCOUNT_ID: base.ZOOM_OAUTH_ACCOUNT_ID,
     CLIENT_ID: base.ZOOM_OAUTH_CLIENT_ID,
     CLIENT_SECRET: base.ZOOM_OAUTH_CLIENT_SECRET,
+  },
+
+  REDIS: {
+    HOST: base.REDIS_HOST,
+    PORT: base.REDIS_PORT,
+    PASSWORD: base.REDIS_PASSWORD,
   },
 
   DB_CONNECTIONS: names.map((name) =>
