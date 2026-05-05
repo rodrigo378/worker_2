@@ -256,10 +256,12 @@ export class ZoomService {
       await this.zoomRepository.getZoomUsers({ role: "host" })
     ).map((z) => z.zoom_user_id);
 
-    const instances = await this.zoomRepository.getInstances({
-      participantsProcessed: false,
-      participantsSynced: true,
-    });
+    const instances = (
+      await this.zoomRepository.getInstances({
+        participantsProcessed: false,
+        participantsSynced: true,
+      })
+    ).slice(0, 4);
 
     for (const instance of instances) {
       console.log("instance => ", instance);
@@ -460,7 +462,23 @@ export class ZoomService {
         }
       }
 
+      const fechaClase = start_time
+        ? [
+            start_time.getFullYear(),
+            String(start_time.getMonth() + 1).padStart(2, "0"),
+            String(start_time.getDate()).padStart(2, "0"),
+          ].join("-")
+        : null;
+
+      if (!fechaClase) {
+        throw new Error("No se pudo obtener la fecha de inicio de la clase.");
+      }
+
       await this.zoomRepository.insertZoomMeetingParticipants(procesados);
+      const cantidad = await this.zoomRepository.getMatriculadosCantindad(
+        instance.courseid,
+        fechaClase,
+      );
 
       await this.zoomRepository.upsertZoomMeetingInstances([
         {
@@ -471,6 +489,8 @@ export class ZoomService {
           duration,
           participantsProcessed: true,
           updated_at: new Date(),
+          total_participantes: procesados.length - 1,
+          total_matriculados: cantidad.cantidad,
         },
       ]);
     }
@@ -502,7 +522,6 @@ export class ZoomService {
         instance.id,
       );
       console.log("aca dniDocente => ", dniDocente);
-
       console.log("courseid => ", instance.courseid);
       console.log("d_fecha => ", d_fecha);
       console.log("cDnidoc => ", dniDocente?.c_dnidoc);

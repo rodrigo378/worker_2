@@ -69,6 +69,9 @@ export interface Zoom_MeetingInstance {
   participantsProcessed: boolean;
   attendance_status: "PENDING" | "UPLOADED" | "ALREADY_EXISTS";
 
+  total_matriculados: number | null;
+  total_participantes: number | null;
+
   created_at: Date;
   updated_at: Date;
   // meeting?: ZoomMeeting;

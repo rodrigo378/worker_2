@@ -439,6 +439,9 @@ export class ZoomRepository {
       participantsProcessed: i.participantsProcessed ?? false,
       attendance_status: i.attendance_status ?? "PENDING",
 
+      total_matriculados: i.total_matriculados ?? null,
+      total_participantes: i.total_participantes ?? null,
+
       created_at: i.created_at ?? now,
       updated_at: i.updated_at ?? now,
     }));
@@ -458,9 +461,39 @@ export class ZoomRepository {
         participantsProcessed: db.raw("VALUES(participantsProcessed)"),
         attendance_status: db.raw("VALUES(attendance_status)"),
 
+        total_matriculados: db.raw("VALUES(total_matriculados)"),
+        total_participantes: db.raw("VALUES(total_participantes)"),
+
         updated_at: db.raw("VALUES(updated_at)"),
       });
 
     return true;
+  }
+
+  async getMatriculadosCantindad(courseid: number, d_date: string) {
+    const [row] = await this.db("SIGU_LECTURA").raw(
+      `
+        SELECT
+          COUNT(*) as cantidad
+        FROM
+          tb_alu_cur_grp a
+          INNER JOIN tb_curso_grupo_sincro s ON a.n_codper = s.n_codper
+          AND a.c_codcur = s.c_codcur
+          AND a.n_codpla = s.n_codpla
+          AND a.c_grpcur = s.c_grpcur
+          AND a.c_codfac_alu = s.c_codfac
+          AND a.c_codesp_alu = s.c_codesp
+          AND a.c_codmod = s.c_codmod
+        WHERE
+          s.courseid = ?
+          AND a.c_codalu NOT IN (2119921, 12345678)
+          AND a.c_estado = "M"
+          AND DATE(a.d_date) < ?
+  
+      `,
+      [courseid, d_date],
+    );
+
+    return row[0] as { cantidad: number };
   }
 }
