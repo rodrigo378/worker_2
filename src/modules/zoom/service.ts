@@ -256,12 +256,10 @@ export class ZoomService {
       await this.zoomRepository.getZoomUsers({ role: "host" })
     ).map((z) => z.zoom_user_id);
 
-    const instances = (
-      await this.zoomRepository.getInstances({
-        participantsProcessed: false,
-        participantsSynced: true,
-      })
-    ).slice(0, 4);
+    const instances = await this.zoomRepository.getInstances({
+      participantsProcessed: false,
+      participantsSynced: true,
+    });
 
     for (const instance of instances) {
       console.log("instance => ", instance);
@@ -491,6 +489,10 @@ export class ZoomService {
           updated_at: new Date(),
           total_participantes: procesados.length - 1,
           total_matriculados: cantidad.cantidad,
+          attendance_status:
+            duration < config.minTime * 60
+              ? "SKIPPED_SHORT_INSTANCE"
+              : instance.attendance_status,
         },
       ]);
     }
@@ -500,17 +502,27 @@ export class ZoomService {
 
   async sincronizarAsistencias() {
     const instances = await this.zoomRepository.getInstances({
+      participantsProcessed: true,
+      participantsSynced: true,
       attendance_status: "PENDING",
     });
 
     for (const instance of instances) {
       if (!instance.courseid) {
         console.warn(`Instance ${instance.id} sin courseid, skipeando`);
+        await this.zoomRepository.upsertZoomMeetingInstances([
+          {
+            uuid: instance.uuid,
+            meeting_id: instance.meeting_id,
+            attendance_status: "SIN_COURSEID",
+            updated_at: new Date(),
+          },
+        ]);
         continue;
       }
 
       console.log("====================================");
-      console.log("instance => ", instance);
+      console.log("courseid => ", instance.courseid);
 
       const d_fecha = instance.start_time
         ? new Date(instance.start_time.getTime() - 5 * 60 * 60 * 1000)
@@ -521,17 +533,12 @@ export class ZoomService {
       const dniDocente = await this.zoomRepository.getDocenteParticipantes(
         instance.id,
       );
-      console.log("aca dniDocente => ", dniDocente);
-      console.log("courseid => ", instance.courseid);
-      console.log("d_fecha => ", d_fecha);
-      console.log("cDnidoc => ", dniDocente?.c_dnidoc);
 
       const sesion = await this.zoomRepository.sesionExistente(
         instance.courseid,
         d_fecha ?? "",
         dniDocente?.c_dnidoc ?? "",
       );
-      console.log("sesion => ", sesion);
 
       if (sesion && sesion.length > 0) {
         console.log("sesion existente => ", instance.id);
@@ -546,8 +553,6 @@ export class ZoomService {
         ]);
         continue;
       }
-
-      console.log("sesion pendiente => ", instance.id);
 
       console.log("====================================");
     }

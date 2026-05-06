@@ -67,7 +67,12 @@ export interface Zoom_MeetingInstance {
 
   participantsSynced: boolean;
   participantsProcessed: boolean;
-  attendance_status: "PENDING" | "UPLOADED" | "ALREADY_EXISTS";
+  attendance_status:
+    | "PENDING"
+    | "UPLOADED"
+    | "SIN_COURSEID"
+    | "ALREADY_EXISTS"
+    | "SKIPPED_SHORT_INSTANCE";
 
   total_matriculados: number | null;
   total_participantes: number | null;
@@ -107,6 +112,7 @@ export interface Zoom_AttendanceConfig {
   gap: number;
   lateToleranceMinutes: number;
   minAttendancePercentage: number;
+  minTime: number;
   createdAt: Date;
   updatedAt: Date;
 }

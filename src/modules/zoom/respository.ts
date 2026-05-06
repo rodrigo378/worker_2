@@ -96,7 +96,7 @@ export class ZoomRepository {
     if (filters.attendance_status !== undefined) {
       query.where("attendance_status", filters.attendance_status);
     }
-
+    // return (await query) as Zoom_MeetingInstance[];
     return query;
   }
 
@@ -435,9 +435,9 @@ export class ZoomRepository {
       duration: i.duration ?? null,
       status: i.status ?? null,
 
-      participantsSynced: i.participantsSynced ?? false,
-      participantsProcessed: i.participantsProcessed ?? false,
-      attendance_status: i.attendance_status ?? "PENDING",
+      participantsSynced: i.participantsSynced,
+      participantsProcessed: i.participantsProcessed,
+      attendance_status: i.attendance_status,
 
       total_matriculados: i.total_matriculados ?? null,
       total_participantes: i.total_participantes ?? null,
@@ -446,26 +446,61 @@ export class ZoomRepository {
       updated_at: i.updated_at ?? now,
     }));
 
+    const mergeData: Record<string, any> = {
+      updated_at: db.raw("VALUES(updated_at)"),
+    };
+
+    const has = (key: keyof Zoom_MeetingInstance) =>
+      instances.some((i) => i[key] !== undefined);
+
+    if (has("meeting_id")) {
+      mergeData.meeting_id = db.raw("VALUES(meeting_id)");
+    }
+
+    if (has("occurrence_id")) {
+      mergeData.occurrence_id = db.raw("VALUES(occurrence_id)");
+    }
+
+    if (has("start_time")) {
+      mergeData.start_time = db.raw("VALUES(start_time)");
+    }
+
+    if (has("end_time")) {
+      mergeData.end_time = db.raw("VALUES(end_time)");
+    }
+
+    if (has("duration")) {
+      mergeData.duration = db.raw("VALUES(duration)");
+    }
+
+    if (has("status")) {
+      mergeData.status = db.raw("VALUES(status)");
+    }
+
+    if (has("participantsSynced")) {
+      mergeData.participantsSynced = db.raw("VALUES(participantsSynced)");
+    }
+
+    if (has("participantsProcessed")) {
+      mergeData.participantsProcessed = db.raw("VALUES(participantsProcessed)");
+    }
+
+    if (has("attendance_status")) {
+      mergeData.attendance_status = db.raw("VALUES(attendance_status)");
+    }
+
+    if (has("total_matriculados")) {
+      mergeData.total_matriculados = db.raw("VALUES(total_matriculados)");
+    }
+
+    if (has("total_participantes")) {
+      mergeData.total_participantes = db.raw("VALUES(total_participantes)");
+    }
+
     await db("zoom_meeting_instance")
       .insert(rows)
       .onConflict("uuid")
-      .merge({
-        meeting_id: db.raw("VALUES(meeting_id)"),
-        occurrence_id: db.raw("VALUES(occurrence_id)"),
-        start_time: db.raw("VALUES(start_time)"),
-        end_time: db.raw("VALUES(end_time)"),
-        duration: db.raw("VALUES(duration)"),
-        status: db.raw("VALUES(status)"),
-
-        participantsSynced: db.raw("VALUES(participantsSynced)"),
-        participantsProcessed: db.raw("VALUES(participantsProcessed)"),
-        attendance_status: db.raw("VALUES(attendance_status)"),
-
-        total_matriculados: db.raw("VALUES(total_matriculados)"),
-        total_participantes: db.raw("VALUES(total_participantes)"),
-
-        updated_at: db.raw("VALUES(updated_at)"),
-      });
+      .merge(mergeData);
 
     return true;
   }
