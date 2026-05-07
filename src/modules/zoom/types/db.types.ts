@@ -139,6 +139,7 @@ export interface Zoom_MeetingParticipant {
   c_codfac?: string | null;
   c_codesp?: string | null;
   c_codmod?: string | null;
+  c_grpcur?: string | null;
 
   // resultado final (mergeado)
   firstJoin?: Date | null;
@@ -151,6 +152,7 @@ export interface Zoom_MeetingParticipant {
   // lógica de negocio
   attendance?: boolean | null;
   late?: boolean | null;
+  corresponde_sesion: boolean;
 
   createdAt: Date;
   updatedAt: Date;

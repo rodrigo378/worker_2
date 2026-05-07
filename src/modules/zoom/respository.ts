@@ -295,6 +295,7 @@ export class ZoomRepository {
       c_codfac: p.c_codfac ?? null,
       c_codesp: p.c_codesp ?? null,
       c_codmod: p.c_codmod ?? null,
+      c_grpcur: p.c_grpcur ?? null,
 
       first_join: p.firstJoin ?? null,
       last_leave: p.lastLeave ?? null,
@@ -304,6 +305,7 @@ export class ZoomRepository {
 
       attendance: p.attendance ?? null,
       late: p.late ?? null,
+      corresponde_sesion: p.corresponde_sesion ?? false,
 
       created_at: now,
       updated_at: now,
@@ -530,5 +532,40 @@ export class ZoomRepository {
     );
 
     return row[0] as { cantidad: number };
+  }
+
+  async getHorarioGrupo(courseid: number, n_numdia: number) {
+    const [row] = await this.db("SIGU_LECTURA").raw(
+      `
+        SELECT 
+            h.*
+        FROM 
+            tb_curso_grupo_sincro s
+        JOIN 
+            tb_cur_grp_hor h
+            ON s.n_codper  = h.n_codper
+            AND s.c_codfac = h.c_codfac
+            AND s.c_codesp = h.c_codesp
+            AND s.c_sedcod = h.c_sedcod
+            AND s.c_codcur = h.c_codcur
+            AND s.c_grpcur = h.c_grpcur
+            AND s.c_codmod = h.c_codmod
+            AND s.n_codpla = h.n_codpla
+        WHERE 
+              s.courseid = ? 
+              AND h.n_numdia = ?
+
+    `,
+      [courseid, n_numdia],
+    );
+
+    return row as {
+      n_codper: number;
+      c_codfac: string;
+      c_codesp: string;
+      c_grpcur: string;
+      n_codpla: number;
+      c_codmod: number;
+    }[];
   }
 }

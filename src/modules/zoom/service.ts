@@ -259,7 +259,7 @@ export class ZoomService {
     const instances = await this.zoomRepository.getInstances({
       participantsProcessed: false,
       participantsSynced: true,
-    });
+    }); // filter((i) => [1463].includes(i.id));
 
     for (const instance of instances) {
       console.log("instance => ", instance);
@@ -389,6 +389,13 @@ export class ZoomService {
         n_numdia!,
       );
 
+      const dataGrupos = await this.zoomRepository.getHorarioGrupo(
+        instance.courseid,
+        n_numdia!,
+      );
+
+      const a_c_grpcur = dataGrupos.map((d) => d.c_grpcur);
+
       let docenteDni: string | null = null;
       if (docentesSigu.length === 1) {
         docenteDni = docentesSigu[0]?.c_dnidoc ?? null;
@@ -438,6 +445,10 @@ export class ZoomService {
         procesado.c_codmod = matriculado?.c_codmod
           ? String(matriculado.c_codmod)
           : null;
+        procesado.c_grpcur = matriculado?.c_grpcur ?? null;
+        procesado.corresponde_sesion = a_c_grpcur.includes(
+          matriculado?.c_grpcur ?? "",
+        );
 
         procesado.role = "student";
         // Attendance
