@@ -72,6 +72,7 @@ export interface Zoom_MeetingInstance {
     | "UPLOADED"
     | "SIN_COURSEID"
     | "ALREADY_EXISTS"
+    | "SIN_DNIDOCENTE"
     | "SKIPPED_SHORT_INSTANCE";
 
   total_matriculados: number | null;

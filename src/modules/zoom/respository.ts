@@ -110,6 +110,16 @@ export class ZoomRepository {
     return row as Zoom_MeetingParticipantRaw[];
   }
 
+  async getZoomMeetingParticipant(instance_id: number) {
+    const [row] = await this.db("API_2").raw(
+      `
+      SELECT * FROM zoom_meeting_participants where instance_id = ?  
+    `,
+      [instance_id],
+    );
+    return row as Zoom_MeetingParticipant[];
+  }
+
   async getMatriculadosCourseid(courseid: number) {
     const [row] = await this.db("SIGU_LECTURA").raw(
       `
@@ -193,7 +203,7 @@ export class ZoomRepository {
         WHERE
             b.courseid = ?
             and a.n_numdia = ?
-            and c_tipo in ("VIR","TEV")
+            and c_tipo in ("VIR","TEV", "TEO")
     `,
       [courseid, n_numdia],
     );
@@ -217,26 +227,25 @@ export class ZoomRepository {
   async sesionExistente(courseid: number, d_fecha: string, c_dnidoc: string) {
     const [row] = await this.db("SIGU_LECTURA").raw(
       `
-        SELECT 
-            a.*
-        FROM
-            tb_asis_alum a
-                INNER JOIN
-            tb_curso_grupo_sincro b ON a.n_codper = b.n_codper
-                AND a.c_codesp = b.c_codesp
-                AND a.c_codmod = b.c_codmod
-                AND a.n_codpla = b.n_codpla
-                AND a.c_grpcur = b.c_grpcur
-                AND a.c_codcur = b.c_codcur
-        WHERE
-            b.courseid = ?
-                AND DATE(d_fecha) = ?
-                AND a.c_dnidoc = ?
-        ORDER BY id_asistencia;
+      SELECT 
+          a.*
+      FROM
+          tb_asis_alum a
+              INNER JOIN
+          tb_curso_grupo_sincro b ON a.n_codper = b.n_codper
+              AND a.c_codesp = b.c_codesp
+              AND a.c_codmod = b.c_codmod
+              AND a.n_codpla = b.n_codpla
+              AND a.c_grpcur = b.c_grpcur
+              AND a.c_codcur = b.c_codcur
+      WHERE
+          b.courseid = ?
+              AND DATE(d_fecha) = ?
+              ${c_dnidoc ? "AND a.c_dnidoc = ?" : ""}
+      ORDER BY id_asistencia;
     `,
-      [courseid, d_fecha, c_dnidoc],
+      c_dnidoc ? [courseid, d_fecha, c_dnidoc] : [courseid, d_fecha],
     );
-
     return row;
   }
 
@@ -534,29 +543,49 @@ export class ZoomRepository {
     return row[0] as { cantidad: number };
   }
 
-  async getHorarioGrupo(courseid: number, n_numdia: number) {
+  async getHorarioGrupo(
+    courseid: number,
+    n_numdia: number,
+    c_dnidoc?: string | null,
+  ) {
+    const params: unknown[] = [courseid, n_numdia];
+
+    let docenteWhere = "";
+
+    if (c_dnidoc?.trim()) {
+      docenteWhere = "AND h.c_dnidoc = ?";
+      params.push(c_dnidoc.trim());
+    }
+
     const [row] = await this.db("SIGU_LECTURA").raw(
       `
-        SELECT 
-            h.*
-        FROM 
-            tb_curso_grupo_sincro s
-        JOIN 
-            tb_cur_grp_hor h
-            ON s.n_codper  = h.n_codper
-            AND s.c_codfac = h.c_codfac
-            AND s.c_codesp = h.c_codesp
-            AND s.c_sedcod = h.c_sedcod
-            AND s.c_codcur = h.c_codcur
-            AND s.c_grpcur = h.c_grpcur
-            AND s.c_codmod = h.c_codmod
-            AND s.n_codpla = h.n_codpla
-        WHERE 
-              s.courseid = ? 
-              AND h.n_numdia = ?
-
+    SELECT DISTINCT
+      h.n_codper,
+      h.c_codfac,
+      h.c_codcur,
+      h.c_grpcur,
+      h.c_dnidoc,
+      h.n_numdia,
+      h.c_codmod,
+      h.c_codesp,
+      h.n_codpla
+    FROM
+      tb_curso_grupo_sincro s
+      JOIN tb_cur_grp_hor h
+        ON s.n_codper = h.n_codper
+        AND s.c_codfac = h.c_codfac
+        AND s.c_codesp = h.c_codesp
+        AND s.c_sedcod = h.c_sedcod
+        AND s.c_codcur = h.c_codcur
+        AND s.c_grpcur = h.c_grpcur
+        AND s.c_codmod = h.c_codmod
+        AND s.n_codpla = h.n_codpla
+    WHERE
+      s.courseid = ?
+      AND h.n_numdia = ?
+      ${docenteWhere}
     `,
-      [courseid, n_numdia],
+      params,
     );
 
     return row as {
@@ -566,6 +595,184 @@ export class ZoomRepository {
       c_grpcur: string;
       n_codpla: number;
       c_codmod: number;
+      c_codcur: string;
+      c_dnidoc: string;
     }[];
+  }
+
+  // ================================================================
+  async createSesiones(
+    data: {
+      n_codper: number;
+      c_codmod: string | number;
+      c_codfac: string;
+      c_codesp: string;
+      c_codcur: string;
+      c_grpcur: string;
+      c_dnidoc: string;
+      d_fecha: string;
+      d_fecha_registro: string;
+      c_estado?: string;
+      c_tema: string;
+      n_codpla: number;
+      c_sedcod?: string | null;
+      tipo?: string | null;
+      auto?: string | null;
+      mins?: string | null;
+      c_user_upd: string;
+      d_fecha_upd: Date;
+    }[],
+  ) {
+    if (!data.length) {
+      return {
+        affectedRows: 0,
+      };
+    }
+
+    const placeholders = data
+      .map(() => `(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .join(",");
+
+    const values = data.flatMap((s) => [
+      s.n_codper,
+      String(s.c_codmod),
+      s.c_codfac,
+      s.c_codesp,
+      s.c_codcur,
+      s.c_grpcur,
+      s.c_dnidoc,
+      s.d_fecha,
+      s.d_fecha_registro,
+      s.c_estado ?? "A",
+      s.c_tema,
+      s.n_codpla,
+      s.c_sedcod ?? "1",
+      s.tipo ?? "1",
+      s.auto ?? "0",
+      s.mins ?? "0",
+      s.c_user_upd,
+      s.d_fecha_upd,
+    ]);
+
+    const [row] = await this.db("SIGU_INSERT").raw(
+      `
+    INSERT INTO tb_asis_alum (
+      n_codper,
+      c_codmod,
+      c_codfac,
+      c_codesp,
+      c_codcur,
+      c_grpcur,
+      c_dnidoc,
+      d_fecha,
+      d_fecha_registro,
+      c_estado,
+      c_tema,
+      n_codpla,
+      c_sedcod,
+      tipo,
+      auto,
+      mins,
+      c_user_upd,
+      d_fecha_upd
+    )
+    VALUES ${placeholders};
+    `,
+      values,
+    );
+
+    return row;
+  }
+
+  async getSesiones(
+    n_codper: number,
+    courseid: number,
+    d_fecha: string,
+    c_dnidoc: string,
+  ) {
+    const [row] = await this.db("SIGU_LECTURA").raw(
+      `
+      SELECT 
+          h.*
+      FROM 
+          tb_curso_grupo_sincro s
+      JOIN 
+          tb_asis_alum h
+          ON s.n_codper  = h.n_codper
+          AND s.c_codfac = h.c_codfac
+          AND s.c_codesp = h.c_codesp
+          AND s.c_sedcod = h.c_sedcod
+          AND s.c_codcur = h.c_codcur
+          AND s.c_grpcur = h.c_grpcur
+          AND s.c_codmod = h.c_codmod
+          AND s.n_codpla = h.n_codpla
+      WHERE 
+            s.courseid = ?
+            AND h.d_fecha = ?
+            AND s.n_codper = ?
+            AND h.c_dnidoc = ?
+    `,
+      [courseid, d_fecha, n_codper, c_dnidoc],
+    );
+    return row as {
+      id_asistencia: number;
+      n_codper: number;
+      c_codmod: string | number;
+      c_codfac: string;
+      c_codesp: string;
+      c_codcur: string;
+      c_grpcur: string;
+      c_dnidoc: string;
+      d_fecha: string;
+      d_fecha_registro: string;
+      c_estado?: string;
+      c_tema: string;
+      n_codpla: number;
+      c_sedcod?: string | null;
+      tipo?: string | null;
+      auto?: string | null;
+      mins?: string | null;
+      c_user_upd: string;
+      d_fecha_upd: Date;
+    }[];
+  }
+
+  async createAsistenciaDetalles(
+    data: {
+      id_asistencia: number;
+      c_codalu: string;
+      c_estado: string;
+      seguir: string | Date;
+    }[],
+  ) {
+    if (!data.length) {
+      return {
+        affectedRows: 0,
+      };
+    }
+
+    const placeholders = data.map(() => `(?,?,?,?)`).join(",");
+
+    const values = data.flatMap((s) => [
+      s.id_asistencia,
+      s.c_codalu,
+      s.c_estado,
+      s.seguir,
+    ]);
+
+    const [row] = await this.db("SIGU_INSERT").raw(
+      `
+    INSERT INTO tb_asis_alum_det (
+      id_asistencia,
+      c_codalu,
+      c_estado,
+      seguir
+    )
+    VALUES ${placeholders};
+    `,
+      values,
+    );
+
+    return row;
   }
 }
