@@ -18,6 +18,9 @@ const BaseEnvSchema = z.object({
   REDIS_HOST: z.string(),
   REDIS_PORT: z.coerce.number(),
   REDIS_PASSWORD: z.string().optional(),
+
+  HUBSPOT_API_BASE: z.string(),
+  HUBSPOT_TOKEN: z.string(),
 });
 
 const base = BaseEnvSchema.parse(process.env);
@@ -42,6 +45,11 @@ export type DbConn = z.infer<typeof ConnSchema>;
 export const env = {
   PORT: base.PORT,
   HOST: base.HOST,
+
+  HUBSPOT: {
+    TOKEN: base.HUBSPOT_TOKEN,
+    BASE_URL: base.HUBSPOT_API_BASE,
+  },
 
   ZOOM: {
     BASE_URL: base.ZOOM_API_BASE,
