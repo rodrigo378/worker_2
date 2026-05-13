@@ -8,4 +8,12 @@ export class ZoomController {
     const data = await this.service.sincronizarContactos();
     return reply.send(data);
   };
+
+  sincronizarConsolidado = async (
+    _req: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    const data = await this.service.sincronizarConsolidado();
+    return reply.send(data);
+  };
 }

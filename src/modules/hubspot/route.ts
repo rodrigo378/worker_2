@@ -12,4 +12,6 @@ export async function hubspotRouter(app: FastifyInstance) {
   const controller = new ZoomController(service);
 
   app.get("/sinc/contactos", controller.sincronizarContactos);
+
+  app.get("/sinc/consolidado", controller.sincronizarConsolidado);
 }
