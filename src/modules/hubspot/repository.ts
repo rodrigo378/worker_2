@@ -131,6 +131,27 @@ export class HubspotRepository {
       estado_postulante: d.estado_postulante ?? null,
       firstname: d.firstname ?? null,
       lastname: d.lastname ?? null,
+
+      apellido_paterno: d.apellido_paterno ?? null,
+      apellido_materno: d.apellido_materno ?? null,
+      tipo_de_documento: d.tipo_de_documento ?? null,
+      departamento: d.departamento ?? null,
+      provincia_de_procedencia: d.provincia_de_procedencia ?? null,
+      distrito_de_procedencia: d.distrito_de_procedencia ?? null,
+      distrito: d.distrito ?? null,
+      phone: d.phone ?? null,
+      mobilphone: d.mobilphone ?? null,
+      email: d.email ?? null,
+      procedencia: d.procedencia ?? null,
+      distrito_del_colegio: d.distrito_del_colegio ?? null,
+      colegio_de_procedencia: d.colegio_de_procedencia ?? null,
+      ano_de_egreso: d.ano_de_egreso ?? null,
+      modalidad_de_estudio: d.modalidad_de_estudio ?? null,
+      genero_m__f: d.genero_m__f ?? null,
+      carrera_o_especialidad: d.carrera_o_especialidad ?? null,
+      fecha_de_inicio_academico: d.fecha_de_inicio_academico ?? null,
+      turno: d.turno ?? null,
+
       cantidad: d.cantidad,
       ids: d.ids,
       createdAt: toMysqlDate(d.createdAt) ?? toMysqlDate(new Date()),
@@ -155,6 +176,29 @@ export class HubspotRepository {
           estado_postulante: db.raw("VALUES(estado_postulante)"),
           firstname: db.raw("VALUES(firstname)"),
           lastname: db.raw("VALUES(lastname)"),
+
+          apellido_paterno: db.raw("VALUES(apellido_paterno)"),
+          apellido_materno: db.raw("VALUES(apellido_materno)"),
+          tipo_de_documento: db.raw("VALUES(tipo_de_documento)"),
+          departamento: db.raw("VALUES(departamento)"),
+          provincia_de_procedencia: db.raw("VALUES(provincia_de_procedencia)"),
+          distrito_de_procedencia: db.raw("VALUES(distrito_de_procedencia)"),
+          distrito: db.raw("VALUES(distrito)"),
+          phone: db.raw("VALUES(phone)"),
+          mobilphone: db.raw("VALUES(mobilphone)"),
+          email: db.raw("VALUES(email)"),
+          procedencia: db.raw("VALUES(procedencia)"),
+          distrito_del_colegio: db.raw("VALUES(distrito_del_colegio)"),
+          colegio_de_procedencia: db.raw("VALUES(colegio_de_procedencia)"),
+          ano_de_egreso: db.raw("VALUES(ano_de_egreso)"),
+          modalidad_de_estudio: db.raw("VALUES(modalidad_de_estudio)"),
+          genero_m__f: db.raw("VALUES(genero_m__f)"),
+          carrera_o_especialidad: db.raw("VALUES(carrera_o_especialidad)"),
+          fecha_de_inicio_academico: db.raw(
+            "VALUES(fecha_de_inicio_academico)",
+          ),
+          turno: db.raw("VALUES(turno)"),
+
           cantidad: db.raw("VALUES(cantidad)"),
           ids: db.raw("VALUES(ids)"),
           updatedAt: db.raw("VALUES(updatedAt)"),
@@ -174,17 +218,6 @@ export class HubspotRepository {
       SELECT * FROM api_hubspot
     `);
 
-    return rows as {
-      id: string;
-      n__de_d_n_i: string;
-      campana_admision: string;
-      estado_matricula: string;
-      estado_pagos: string;
-      estado_postulante: string;
-      firstname: string;
-      lastname: string;
-      createdAt: Date;
-      updatedAt: Date;
-    }[];
+    return rows as Api_Hubspot[];
   }
 }

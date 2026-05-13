@@ -8,6 +8,7 @@ export interface Api_Hubspot {
   estado_postulante: string | null;
   firstname: string | null;
   lastname: string | null;
+
   apellido_paterno: string | null;
   apellido_materno: string | null;
   tipo_de_documento: string | null;
@@ -41,6 +42,27 @@ export interface Api_Hubspot_Consolidado {
   estado_postulante?: string | null;
   firstname?: string | null;
   lastname?: string | null;
+
+  apellido_paterno: string | null;
+  apellido_materno: string | null;
+  tipo_de_documento: string | null;
+  departamento: string | null;
+  provincia_de_procedencia: string | null;
+  distrito_de_procedencia: string | null;
+  distrito: string | null;
+  phone: string | null;
+  mobilphone: string | null;
+  email: string | null;
+  procedencia: string | null;
+  distrito_del_colegio: string | null;
+  colegio_de_procedencia: string | null;
+  ano_de_egreso: string | null;
+  modalidad_de_estudio: string | null;
+  genero_m__f: string | null;
+  carrera_o_especialidad: string | null;
+  fecha_de_inicio_academico: string | null;
+  turno: string | null;
+
   cantidad: number;
   ids: string;
   createdAt: Date;
