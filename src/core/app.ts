@@ -5,6 +5,8 @@ import { registerRoutes } from "./routes";
 import { registerCrons } from "./crons";
 
 export async function buildApp() {
+  console.log("v2");
+
   const app = Fastify({ logger: true });
 
   const db = await initDb(env.DB_CONNECTIONS);
