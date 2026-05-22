@@ -130,6 +130,10 @@ export class HubspotService {
     await this.repo.upsertManyHubspotConsolidado(arrayContactos);
     return true;
   }
+  // hubspot.service.ts
+  async getSyncEnCurso() {
+    return this.repo.getSyncEnCurso();
+  }
 
   // ===================================================================================
   async ejecutarSincronizacionCompleta() {
@@ -146,10 +150,25 @@ export class HubspotService {
       gotLock = lockResult?.[0]?.[0]?.got_lock === 1;
 
       if (!gotLock) {
+        // 👇 buscar el sync en curso para devolver cuando inicio
+        const db = this.repo.db("API_2");
+        const enCurso: any = await db("api_hubspot_sync_log")
+          .whereNull("finishedAt")
+          .andWhere("status", "running")
+          .orderBy("startedAt", "desc")
+          .first();
+
         return {
           ok: false,
           running: true,
           message: "La sincronización de HubSpot ya se está ejecutando.",
+          startedAt: enCurso?.startedAt ?? null,
+          currentStage: enCurso?.source ?? null,
+          elapsedSeconds: enCurso?.startedAt
+            ? Math.floor(
+                (Date.now() - new Date(enCurso.startedAt).getTime()) / 1000,
+              )
+            : null,
         };
       }
 

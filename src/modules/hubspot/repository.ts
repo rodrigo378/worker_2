@@ -281,6 +281,15 @@ export class HubspotRepository {
     return id;
   }
 
+  async getSyncEnCurso() {
+    const db = this.db("API_2");
+    return db("api_hubspot_sync_log")
+      .whereNull("finishedAt")
+      .andWhere("status", "running")
+      .orderBy("startedAt", "desc")
+      .first();
+  }
+
   // ===================================================================================
   async updateSyncLog(
     id: string,
