@@ -58,6 +58,17 @@ export class ZoomRepository {
     return rows as Zoom_Meeting[];
   }
 
+  async getTbCursoGrupoSincro() {
+    const [rows] = await this.db("SIGU_LECTURA").raw(
+      `
+      SELECT * FROM tb_curso_grupo_sincro
+      
+      `,
+    );
+
+    return rows as { courseid: number; c_codfac: string }[];
+  }
+
   async getAttendanceConfig() {
     const [rows] = await this.db("API_2").raw(
       `SELECT * FROM zoom_attendance_config LIMIT 1`,
@@ -453,6 +464,8 @@ export class ZoomRepository {
       total_matriculados: i.total_matriculados ?? null,
       total_participantes: i.total_participantes ?? null,
 
+      id_asistencia: i.id_asistencia ?? null,
+
       created_at: i.created_at ?? now,
       updated_at: i.updated_at ?? now,
     }));
@@ -506,6 +519,10 @@ export class ZoomRepository {
 
     if (has("total_participantes")) {
       mergeData.total_participantes = db.raw("VALUES(total_participantes)");
+    }
+
+    if (has("id_asistencia")) {
+      mergeData.id_asistencia = db.raw("VALUES(id_asistencia)");
     }
 
     await db("zoom_meeting_instance")

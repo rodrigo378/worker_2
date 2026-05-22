@@ -68,3 +68,13 @@ export interface Api_Hubspot_Consolidado {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface Api_Hubspot_SyncLog {
+  id: string;
+  source: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "success" | "failed";
+  recordsProcessed: number | null;
+  error: string | null;
+}

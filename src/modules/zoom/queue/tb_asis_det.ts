@@ -8,7 +8,7 @@ export const zoomQueue = new Queue("main", {
 
 export async function enqueueSubirAsistencia(instanceId: bigint) {
   await zoomQueue.add("subir-asistencia", {
-    instanceId: instanceId.toString(), // bigint no se serializa en JSON
+    instanceId: instanceId.toString(),
     traceId: crypto.randomUUID(),
   });
 }

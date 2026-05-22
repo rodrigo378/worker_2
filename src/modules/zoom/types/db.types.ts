@@ -73,10 +73,14 @@ export interface Zoom_MeetingInstance {
     | "SIN_COURSEID"
     | "ALREADY_EXISTS"
     | "SIN_DNIDOCENTE"
-    | "SKIPPED_SHORT_INSTANCE";
+    | "SKIPPED_SHORT_INSTANCE"
+    | "SKIPPED_FACULTAD_NO_PERMITIDA"
+    | "SIN_SALA";
 
   total_matriculados: number | null;
   total_participantes: number | null;
+
+  id_asistencia: string | null;
 
   created_at: Date;
   updated_at: Date;

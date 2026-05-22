@@ -9,15 +9,15 @@ import {
 } from "./types/db.types";
 import { ZoomUser } from "./types/http.types";
 
+// ===================================================================================
 export class ZoomService {
-  // FECHA_DESDE = new Date()
-  // FECHA_HASTA = "2026-04-30";
-
+  // ===================================================================================
   constructor(
     private readonly zoomHttp: ZoomHttpClient,
     private readonly zoomRepository: ZoomRepository,
   ) {}
 
+  // ===================================================================================
   async sincronizarUsuarios() {
     const page_number = 1;
     const page_size = 2000;
@@ -45,6 +45,7 @@ export class ZoomService {
     return await this.zoomRepository.upsertZoomRoom(map);
   }
 
+  // ===================================================================================
   async sincronizarMeetingsRooms() {
     const desdeDate = new Date();
     desdeDate.setDate(desdeDate.getDate() - 7);
@@ -163,6 +164,7 @@ export class ZoomService {
     return true;
   }
 
+  // ===================================================================================
   async sincronizarInstancias() {
     const meetingRooms = await this.zoomRepository.getMeetings();
 
@@ -186,14 +188,16 @@ export class ZoomService {
     return instances;
   }
 
+  // ===================================================================================
   async sincronizarParticipantesRaw() {
     const instances = await this.zoomRepository.getInstances({
       participantsSynced: false,
     });
+    const rooms = (
+      await this.zoomRepository.getZoomUsers({ role: "host" })
+    ).map((z) => z.zoom_user_id);
 
     for (const instance of instances) {
-      console.log("instance => ", instance);
-
       try {
         let nextPageToken: string | undefined = undefined;
         const participants = [];
@@ -230,12 +234,15 @@ export class ZoomService {
           await this.zoomRepository.insertZoomMeetingParticipantRaw(rows);
         }
 
+        const tieneHost = participants.some((p) => rooms.includes(p.id ?? ""));
+
         await this.zoomRepository.upsertZoomMeetingInstances([
           {
             uuid: instance.uuid,
             meeting_id: instance.meeting_id,
             participantsSynced: true,
             updated_at: new Date(),
+            ...(tieneHost ? {} : { attendance_status: "SIN_SALA" }),
           },
         ]);
       } catch (error) {
@@ -249,6 +256,7 @@ export class ZoomService {
     return true;
   }
 
+  // ===================================================================================
   normalizarNombre = (value: string) =>
     value
       .normalize("NFD")
@@ -258,14 +266,17 @@ export class ZoomService {
       .toUpperCase()
       .replace(/\s+/g, " ");
 
+  // ===================================================================================
   palabrasDebiles = new Set(["DE", "DEL", "LA", "LAS", "LOS", "Y"]);
 
+  // ===================================================================================
   obtenerPalabrasNombre = (value: string) =>
     this.normalizarNombre(value)
       .split(" ")
       .filter((palabra) => palabra.length >= 3)
       .filter((palabra) => !this.palabrasDebiles.has(palabra));
 
+  // ===================================================================================
   levenshtein = (a: string, b: string) => {
     const matrix = Array.from({ length: a.length + 1 }, (_, i) =>
       Array.from({ length: b.length + 1 }, (_, j) => {
@@ -290,6 +301,7 @@ export class ZoomService {
     return matrix[a.length][b.length];
   };
 
+  // ===================================================================================
   similitudPalabra = (a: string, b: string) => {
     if (a === b) return 1;
 
@@ -301,6 +313,7 @@ export class ZoomService {
     return 1 - distancia / maxLength;
   };
 
+  // ===================================================================================
   calcularSimilitudNombre = (nombreZoom: string, nombreSigu: string) => {
     const palabrasZoom = this.obtenerPalabrasNombre(nombreZoom);
     const palabrasSigu = this.obtenerPalabrasNombre(nombreSigu);
@@ -331,6 +344,8 @@ export class ZoomService {
       palabrasSigu,
     };
   };
+
+  // ===================================================================================
   extraerCorreo = (value?: string | null) => {
     if (!value) return null;
 
@@ -342,6 +357,7 @@ export class ZoomService {
     return match?.[0] ?? null;
   };
 
+  // ===================================================================================
   async sincronizarParticipantes() {
     const config = await this.zoomRepository.getAttendanceConfig();
     const gapMs = config.gap * 60 * 1000;
@@ -352,16 +368,14 @@ export class ZoomService {
     const instances = await this.zoomRepository.getInstances({
       participantsProcessed: false,
       participantsSynced: true,
-    }); //.filter((i) => [118].includes(i.meeting_id)); //  .filter((i) => [11].includes(i.id));
+      attendance_status: "PENDING",
+    }); //.filter((i) => [945].includes(i.id)); //.filter((i) => [118].includes(i.meeting_id));
 
     for (const instance of instances) {
-      console.log("==========================================================");
-
-      console.log("instance => ", instance);
-
       const raw = await this.zoomRepository.getZoomMeetingParticipantRaw(
         instance.id,
       );
+
       const matriculados = await this.zoomRepository.getMatriculadosCourseid(
         instance.courseid,
       );
@@ -461,13 +475,24 @@ export class ZoomService {
           late: null,
         });
       }
+
       //===================================================================
 
       //Procesar host
       const host = procesados.find((pr) =>
         rooms.includes(pr.zoomUser_id ?? ""),
       );
+
       if (!host) {
+        await this.zoomRepository.upsertZoomMeetingInstances([
+          {
+            uuid: instance.uuid,
+            meeting_id: instance.meeting_id,
+            participantsProcessed: true,
+            updated_at: new Date(),
+            attendance_status: "SIN_SALA",
+          },
+        ]);
         continue;
       }
 
@@ -477,10 +502,7 @@ export class ZoomService {
       const duration = sessions.reduce((sum, s) => sum + s.duration, 0);
       host.role = "host";
 
-      const n_numdia = start_time ? start_time.getDay() : null; // 0=Dom, 1=Lun... 6=Sab
-
-      console.log("instance.courseid => ", instance.courseid);
-      console.log("n_numdia => ", n_numdia);
+      const n_numdia = start_time ? start_time.getDay() : null;
 
       const docentesSigu = await this.zoomRepository.getDocentes(
         instance.courseid,
@@ -510,78 +532,11 @@ export class ZoomService {
         docenteDni = match?.c_dnidoc ?? docentesSigu[0]?.c_dnidoc ?? null;
       }
 
-      console.log("docenteDni => ", docenteDni);
-      console.log("==========================================================");
-
       host.c_dnidoc = docenteDni;
-      // host.cDnidoc = "22222222";
 
       for (const procesado of procesados) {
         if (procesado.role === "host") continue;
 
-        // const matriculado = matriculados.find((m) => {
-        //   if (procesado.email && m.c_email_institucional) {
-        //     return (
-        //       procesado.email.trim().toLowerCase() ===
-        //       m.c_email_institucional.trim().toLowerCase()
-        //     );
-        //   }
-        //   if (procesado.name && m.nombre) {
-        //     const normalizar = (value: string) =>
-        //       value
-        //         .normalize("NFD")
-        //         .replace(/[\u0300-\u036f]/g, "")
-        //         .trim()
-        //         .toUpperCase()
-        //         .replace(/\s+/g, " ");
-
-        //     const nombreZoom = normalizar(procesado.name);
-        //     const nombreSigu = normalizar(m.nombre);
-
-        //     const palabrasZoom = nombreZoom.split(" ");
-        //     const palabrasSigu = nombreSigu.split(" ");
-
-        //     if (palabrasZoom.length < 2) return false;
-
-        //     const coincidencias = palabrasZoom.filter((palabra) =>
-        //       palabrasSigu.includes(palabra),
-        //     );
-
-        //     const faltantes = palabrasZoom.filter(
-        //       (palabra) => !palabrasSigu.includes(palabra),
-        //     );
-
-        //     const matchNombre = faltantes.length === 0;
-
-        //     const debug =
-        //       nombreZoom.includes("ILIQUIN") ||
-        //       nombreZoom.includes("EVITA") ||
-        //       nombreSigu.includes("ILIQUIN") ||
-        //       nombreSigu.includes("EVITA");
-
-        //     if (debug) {
-        //       console.log(
-        //         [
-        //           "====== DEBUG MATCH NOMBRE ======",
-        //           `ZOOM_ORIGINAL: ${procesado.name}`,
-        //           `SIGU_ORIGINAL: ${m.nombre}`,
-        //           `ZOOM_NORMAL: ${nombreZoom}`,
-        //           `SIGU_NORMAL: ${nombreSigu}`,
-        //           `CODALU_SIGU: ${m.c_codalu}`,
-        //           `PALABRAS_ZOOM: ${palabrasZoom.join(" | ")}`,
-        //           `PALABRAS_SIGU: ${palabrasSigu.join(" | ")}`,
-        //           `COINCIDEN: ${coincidencias.join(" | ") || "-"}`,
-        //           `FALTAN: ${faltantes.join(" | ") || "-"}`,
-        //           `MATCH: ${matchNombre}`,
-        //           "================================",
-        //         ].join("\n"),
-        //       );
-        //     }
-
-        //     return matchNombre;
-        //   }
-        //   return false;
-        // });
         const correoZoom =
           this.extraerCorreo(procesado.email) ??
           this.extraerCorreo(procesado.name);
@@ -815,6 +770,7 @@ export class ZoomService {
     return true;
   }
 
+  // ===================================================================================
   async sincronizarAsistencias() {
     const instances = (
       await this.zoomRepository.getInstances({
@@ -822,12 +778,22 @@ export class ZoomService {
         participantsSynced: true,
         attendance_status: "PENDING",
       })
-    ).filter((i) =>
-      [
-        // 118
-        128,
-      ].includes(i.meeting_id),
-    ); //.filter((i) => [1463].includes(i.id));
+    )
+      // ).filter((i) =>
+      //   [
+      //     // 118
+      //     4376,
+      //   ].includes(i.meeting_id),
+      .filter((i) => [185319, 1179].includes(i.id));
+
+    // const instances = await this.zoomRepository.getInstances({
+    //   participantsProcessed: true,
+    //   participantsSynced: true,
+    //   attendance_status: "PENDING",
+    // });
+
+    const tbCursoGrupoSincro =
+      await this.zoomRepository.getTbCursoGrupoSincro();
 
     for (const instance of instances) {
       if (!instance.courseid) {
@@ -840,6 +806,45 @@ export class ZoomService {
             updated_at: new Date(),
           },
         ]);
+        continue;
+      }
+
+      const cursoGrupo = tbCursoGrupoSincro.find(
+        (item) => Number(item.courseid) === Number(instance.courseid),
+      );
+      const facultadesPermitidas = ["E", "S"];
+
+      if (!cursoGrupo) {
+        console.warn(
+          `Instance ${instance.id} con courseid ${instance.courseid} no existe en tb_curso_grupo_sincro`,
+        );
+
+        await this.zoomRepository.upsertZoomMeetingInstances([
+          {
+            uuid: instance.uuid,
+            meeting_id: instance.meeting_id,
+            attendance_status: "SIN_COURSEID",
+            updated_at: new Date(),
+          },
+        ]);
+
+        continue;
+      }
+
+      if (!facultadesPermitidas.includes(cursoGrupo.c_codfac)) {
+        console.warn(
+          `Instance ${instance.id} omitida. Courseid ${instance.courseid} pertenece a facultad ${cursoGrupo.c_codfac}`,
+        );
+
+        await this.zoomRepository.upsertZoomMeetingInstances([
+          {
+            uuid: instance.uuid,
+            meeting_id: instance.meeting_id,
+            attendance_status: "SKIPPED_FACULTAD_NO_PERMITIDA",
+            updated_at: new Date(),
+          },
+        ]);
+
         continue;
       }
 
@@ -876,26 +881,22 @@ export class ZoomService {
         continue;
       }
 
-      const sesion = await this.zoomRepository.sesionExistente(
+      const sesion: any[] = await this.zoomRepository.sesionExistente(
         instance.courseid,
         d_fecha ?? "",
         dniDocente?.c_dnidoc ?? "",
       );
 
-      console.log("instance.courseid => ", instance.courseid);
-      console.log("d_fecha => ", d_fecha);
-      console.log("sesion => ", sesion);
-
       if (sesion && sesion.length > 0) {
-        console.log("sesion existente => ", instance.id);
-        // await this.zoomRepository.upsertZoomMeetingInstances([
-        //   {
-        //     uuid: instance.uuid,
-        //     meeting_id: instance.meeting_id,
-        //     attendance_status: "ALREADY_EXISTS",
-        //     updated_at: new Date(),
-        //   },
-        // ]);
+        await this.zoomRepository.upsertZoomMeetingInstances([
+          {
+            uuid: instance.uuid,
+            meeting_id: instance.meeting_id,
+            attendance_status: "ALREADY_EXISTS",
+            id_asistencia: sesion.map((s) => s.id_asistencia).join(","),
+            updated_at: new Date(),
+          },
+        ]);
         continue;
       }
 
@@ -905,11 +906,16 @@ export class ZoomService {
         dniDocente.c_dnidoc,
       );
 
-      console.log("sesionGrupo => ", sesionGrupo);
-
       if (!d_fecha) {
         throw new Error("No se puede crear la sesión porque d_fecha es null");
       }
+
+      const diasSemana = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+      const fechaLocal = new Date(
+        instance.start_time.getTime() - 5 * 60 * 60 * 1000,
+      );
+      const diaTexto = diasSemana[fechaLocal.getUTCDay()];
+      const horaInicio = fechaLocal.toISOString().slice(11, 16);
 
       const dataSesiones = sesionGrupo.map((s) => ({
         n_codper: s.n_codper,
@@ -921,11 +927,16 @@ export class ZoomService {
         c_dnidoc: s.c_dnidoc,
         d_fecha: d_fecha,
         d_fecha_registro: d_fecha,
-        c_tema: "tema",
+        c_tema:
+          `[AUTO] ${instance.topic?.trim() || `${s.c_codcur}-${s.c_grpcur}`} (${diaTexto} ${d_fecha} ${horaInicio} - Doc. ${dniDocente.c_dnidoc})`.slice(
+            0,
+            150,
+          ),
         n_codpla: s.n_codpla,
-        c_user_upd: "NEW_BOOT",
+        c_user_upd: "boot.v2",
         d_fecha_upd: new Date(),
       }));
+      console.log("dataSesiones => ", dataSesiones);
 
       const sesionesCreadas =
         await this.zoomRepository.createSesiones(dataSesiones);
@@ -940,7 +951,6 @@ export class ZoomService {
       const participantes = await this.zoomRepository.getZoomMeetingParticipant(
         instance.id,
       );
-      // console.log("participantes => ", participantes);
 
       const part = participantes
         .filter(
@@ -967,8 +977,6 @@ export class ZoomService {
           };
         })
         .filter((p) => p !== null);
-
-      console.log("part", part);
 
       const createSesionDetalle =
         // await this.zoomRepository.createAsistenciaDetalles(part);

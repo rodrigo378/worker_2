@@ -81,26 +81,16 @@ export class HubspotService {
   async sincronizarConsolidado() {
     const contactos = await this.repo.getContactos();
 
-    const arrayContactos: Api_Hubspot_Consolidado[] = [];
-
-    const seen = new Set<string>();
-
-    const contactosUnicos = contactos.filter((c) => {
-      if (!c.n__de_d_n_i) return false;
-
+    const grupos = new Map<string, typeof contactos>();
+    for (const c of contactos) {
+      if (!c.n__de_d_n_i) continue;
       const key = `${c.n__de_d_n_i}-${c.campana_admision}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+      if (!grupos.has(key)) grupos.set(key, []);
+      grupos.get(key)!.push(c);
+    }
 
-    contactosUnicos.map((cu) => {
-      const contac = contactos.filter(
-        (c) =>
-          c.n__de_d_n_i &&
-          c.campana_admision === cu.campana_admision &&
-          c.n__de_d_n_i === cu.n__de_d_n_i,
-      );
+    const arrayContactos: Api_Hubspot_Consolidado[] = [];
+    for (const contac of grupos.values()) {
       arrayContactos.push({
         id: contac[0]?.id || "",
         n__de_d_n_i: contac[0]?.n__de_d_n_i || "",
@@ -110,7 +100,6 @@ export class HubspotService {
         estado_postulante: contac[0]?.estado_postulante || "",
         firstname: contac[0]?.firstname || "",
         lastname: contac[0]?.lastname || "",
-
         apellido_paterno: contac[0]?.apellido_paterno || "",
         apellido_materno: contac[0]?.apellido_materno || "",
         tipo_de_documento: contac[0]?.tipo_de_documento || "",
@@ -130,7 +119,6 @@ export class HubspotService {
         carrera_o_especialidad: contac[0]?.carrera_o_especialidad || "",
         fecha_de_inicio_academico: contac[0]?.fecha_de_inicio_academico || "",
         turno: contac[0]?.turno || "",
-
         cantidad: contac.length,
         ids: contac.map((c) => c.id).join(","),
         createdAt: contac[0]?.createdAt
@@ -140,10 +128,58 @@ export class HubspotService {
           ? new Date(contac[0].updatedAt)
           : new Date(),
       });
-    });
+    }
 
-    this.repo.upsertManyHubspotConsolidado(arrayContactos);
-
+    await this.repo.upsertManyHubspotConsolidado(arrayContactos);
     return true;
+  }
+
+  // ===================================================================================
+  async ejecutarSincronizacionCompleta() {
+    const source = "api_hubspot_consolidado";
+
+    const isRunning = await this.repo.hasRunningSync(source);
+
+    if (isRunning) {
+      return {
+        ok: false,
+        running: true,
+        message: "La sincronización de HubSpot ya se está ejecutando.",
+      };
+    }
+
+    const logId = await this.repo.createSyncLog(source);
+    let totalContactos = 0;
+
+    try {
+      console.log("[HUBSPOT] Sincronizando contactos...");
+      totalContactos = await this.sincronizarContactos();
+      console.log(`[HUBSPOT] Contactos sincronizados: ${totalContactos}`);
+
+      console.log("[HUBSPOT] Sincronizando consolidado...");
+      await this.sincronizarConsolidado();
+      console.log("[HUBSPOT] Consolidado sincronizado");
+
+      await this.repo.finishSyncLog(logId, {
+        status: "success",
+        recordsProcessed: totalContactos,
+        error: null,
+      });
+
+      return {
+        ok: true,
+        running: false,
+        recordsProcessed: totalContactos,
+        message: "Sincronización HubSpot completada correctamente.",
+      };
+    } catch (err: any) {
+      await this.repo.finishSyncLog(logId, {
+        status: "failed",
+        recordsProcessed: totalContactos,
+        error: err?.message ?? String(err),
+      });
+
+      throw err;
+    }
   }
 }
