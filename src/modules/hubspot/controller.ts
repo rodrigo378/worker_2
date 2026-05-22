@@ -13,7 +13,7 @@ export class HubspotController {
       return reply.code(409).send(this.buildSyncStatusResponse(enCurso, false));
     }
 
-    // disparar la sync en background
+    // disparar la sync en background s
     this.service.ejecutarSincronizacionCompleta().catch((error) => {
       console.error("Error en sincronización manual:", error);
     });
