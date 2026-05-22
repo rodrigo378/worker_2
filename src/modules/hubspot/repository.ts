@@ -213,7 +213,7 @@ export class HubspotRepository {
       // ===========================================================
       // if (!chunk[0]) return;
 
-      const columnas = Object.keys(chunk[0]);
+      const columnas = Object.keys(chunk[0]!);
       const placeholders = chunk
         .map(() => `(${columnas.map(() => "?").join(", ")})`)
         .join(", ");

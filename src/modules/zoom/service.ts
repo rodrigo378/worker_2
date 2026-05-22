@@ -290,15 +290,15 @@ export class ZoomService {
       for (let j = 1; j <= b.length; j++) {
         const costo = a[i - 1] === b[j - 1] ? 0 : 1;
 
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j - 1] + costo,
+        matrix[i]![j] = Math.min(
+          matrix[i - 1]![j]! + 1,
+          matrix[i]![j - 1]! + 1,
+          matrix[i - 1]![j - 1]! + costo,
         );
       }
     }
 
-    return matrix[a.length][b.length];
+    return matrix[a.length]![b.length];
   };
 
   // ===================================================================================
@@ -310,7 +310,7 @@ export class ZoomService {
 
     const distancia = this.levenshtein(a, b);
 
-    return 1 - distancia / maxLength;
+    return 1 - distancia! / maxLength;
   };
 
   // ===================================================================================

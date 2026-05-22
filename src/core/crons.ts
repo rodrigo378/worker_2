@@ -19,5 +19,5 @@ export async function registerCrons(db: DbRegistry) {
   const hubspotHttp = new HubspotHttpClient();
   const hubspotRepository = new HubspotRepository(db);
   const hubspotService = new HubspotService(hubspotHttp, hubspotRepository);
-  startHubspotCron(hubspotService, hubspotRepository);
+  startHubspotCron(hubspotService);
 }

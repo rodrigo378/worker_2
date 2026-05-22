@@ -1,0 +1,1 @@
+{"version":3,"file":"registry.d.ts","sourceRoot":"","sources":["../../../src/core/db/registry.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,IAAI,EAAE,MAAM,MAAM,CAAC;AAEjC,qBAAa,UAAU;IACrB,OAAO,CAAC,KAAK,CAA2B;IAExC,GAAG,CAAC,IAAI,EAAE,MAAM,EAAE,IAAI,EAAE,IAAI;IAI5B,GAAG,CAAC,IAAI,EAAE,MAAM,GAAG,IAAI;IAMvB,IAAI,IAAI,MAAM,EAAE;IAIV,QAAQ;CAMf"}

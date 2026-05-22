@@ -1,0 +1,703 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ZoomService = void 0;
+// ===================================================================================
+class ZoomService {
+    // ===================================================================================
+    constructor(zoomHttp, zoomRepository) {
+        this.zoomHttp = zoomHttp;
+        this.zoomRepository = zoomRepository;
+        // ===================================================================================
+        this.normalizarNombre = (value) => value
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^\p{L}\p{N}\s]/gu, " ")
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, " ");
+        // ===================================================================================
+        this.palabrasDebiles = new Set(["DE", "DEL", "LA", "LAS", "LOS", "Y"]);
+        // ===================================================================================
+        this.obtenerPalabrasNombre = (value) => this.normalizarNombre(value)
+            .split(" ")
+            .filter((palabra) => palabra.length >= 3)
+            .filter((palabra) => !this.palabrasDebiles.has(palabra));
+        // ===================================================================================
+        this.levenshtein = (a, b) => {
+            const matrix = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => {
+                if (i === 0)
+                    return j;
+                if (j === 0)
+                    return i;
+                return 0;
+            }));
+            for (let i = 1; i <= a.length; i++) {
+                for (let j = 1; j <= b.length; j++) {
+                    const costo = a[i - 1] === b[j - 1] ? 0 : 1;
+                    matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + costo);
+                }
+            }
+            return matrix[a.length][b.length];
+        };
+        // ===================================================================================
+        this.similitudPalabra = (a, b) => {
+            if (a === b)
+                return 1;
+            const maxLength = Math.max(a.length, b.length);
+            if (maxLength === 0)
+                return 0;
+            const distancia = this.levenshtein(a, b);
+            return 1 - distancia / maxLength;
+        };
+        // ===================================================================================
+        this.calcularSimilitudNombre = (nombreZoom, nombreSigu) => {
+            const palabrasZoom = this.obtenerPalabrasNombre(nombreZoom);
+            const palabrasSigu = this.obtenerPalabrasNombre(nombreSigu);
+            if (palabrasZoom.length < 2 || palabrasSigu.length < 2) {
+                return {
+                    porcentaje: 0,
+                    coincidencias: [],
+                    palabrasZoom,
+                    palabrasSigu,
+                };
+            }
+            const coincidencias = palabrasZoom.filter((palabraZoom) => {
+                return palabrasSigu.some((palabraSigu) => {
+                    const score = this.similitudPalabra(palabraZoom, palabraSigu);
+                    return score >= 0.82;
+                });
+            });
+            const porcentaje = coincidencias.length / palabrasZoom.length;
+            return {
+                porcentaje,
+                coincidencias,
+                palabrasZoom,
+                palabrasSigu,
+            };
+        };
+        // ===================================================================================
+        this.extraerCorreo = (value) => {
+            if (!value)
+                return null;
+            const match = value
+                .trim()
+                .toLowerCase()
+                .match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+            return match?.[0] ?? null;
+        };
+    }
+    // ===================================================================================
+    async sincronizarUsuarios() {
+        const page_number = 1;
+        const page_size = 2000;
+        const usuarios = [];
+        const resp = await this.zoomHttp.getUsers(page_size, page_number);
+        const page_count = resp.page_count;
+        usuarios.push(...resp.users);
+        for (let i = 2; i <= page_count; i++) {
+            const respPage = await this.zoomHttp.getUsers(page_size, i);
+            usuarios.push(...respPage.users);
+        }
+        const map = usuarios.map((usuario) => ({
+            zoom_user_id: String(usuario.id),
+            first_name: usuario.first_name ?? null,
+            last_name: usuario.last_name ?? null,
+            display_name: usuario.display_name ?? null,
+            email: usuario.email ?? null,
+            licensed: usuario.type === 2 ? true : false,
+        }));
+        return await this.zoomRepository.upsertZoomRoom(map);
+    }
+    // ===================================================================================
+    async sincronizarMeetingsRooms() {
+        const desdeDate = new Date();
+        desdeDate.setDate(desdeDate.getDate() - 7);
+        const hastaDate = new Date();
+        hastaDate.setDate(hastaDate.getDate() + 30);
+        const from = desdeDate.toISOString();
+        const to = hastaDate.toISOString();
+        const users = await this.zoomRepository.getZoomUsers({ active: true });
+        const page_size = 300;
+        const meetings = [];
+        const ocurrences = [];
+        for (const user of users) {
+            let next_page_token = "";
+            do {
+                const res = await this.zoomHttp.getMeetingsRooms(user.zoom_user_id, from, to, page_size, next_page_token);
+                console.log("res => ", res);
+                next_page_token = res.next_page_token || "";
+                res.meetings.map((meeting) => {
+                    if (meeting.type === 1)
+                        return;
+                    meetings.push({
+                        room_id: user.id,
+                        zoom_meeting_id: meeting.id,
+                        topic: meeting.topic ?? "",
+                        type: meeting.type ?? null,
+                    });
+                });
+            } while (next_page_token);
+        }
+        for (const meeting of meetings) {
+            console.log("meeting => ", meeting);
+            const details = await this.zoomHttp.getMeetingsRoomsDetails(meeting.zoom_meeting_id);
+            const shortname = details.tracking_fields?.find((f) => f.field?.trim().toLowerCase() === "shortname")?.value ?? null;
+            meeting.shortname = shortname;
+            meeting.agenda = details.agenda ?? "";
+            ocurrences.push(...(details.occurrences?.map((oc) => ({
+                meeting_id: meeting.zoom_meeting_id,
+                occurrence_id: String(oc.occurrence_id),
+                start_time: oc.start_time ? new Date(oc.start_time) : null,
+                duration: oc.duration ?? null,
+                status: oc.status ?? null,
+            })) ?? []));
+        }
+        const shortnames = [
+            ...new Set(meetings
+                .map((m) => m.shortname?.trim())
+                .filter((s) => !!s)),
+        ];
+        const courseids = await this.zoomRepository.getCourseIdsByShortnames(shortnames);
+        const courseIdsMap = new Map(courseids.map((c) => [c.shortname, c.courseid]));
+        for (const meeting of meetings) {
+            const key = meeting.shortname;
+            meeting.courseid = key ? (courseIdsMap.get(key) ?? null) : null;
+        }
+        await this.zoomRepository.upsertZoomMeetings(meetings);
+        const meetingsBd = await this.zoomRepository.getMeetings();
+        const meetingsMap = new Map(meetingsBd.map((m) => [m.zoom_meeting_id, m.id]));
+        const occurrencesFinal = [];
+        for (const oc of ocurrences) {
+            const meetingId = meetingsMap.get(oc.meeting_id);
+            if (!meetingId) {
+                console.log("no tiene => ", meetingId);
+                continue;
+            }
+            occurrencesFinal.push({
+                meeting_id: meetingId,
+                occurrence_id: String(oc.occurrence_id),
+                start_time: oc.start_time ? new Date(oc.start_time) : null,
+                duration: oc.duration ?? null,
+                status: oc.status ?? null,
+            });
+        }
+        await this.zoomRepository.upsertZoomMeetingOccurrences(occurrencesFinal);
+        return true;
+    }
+    // ===================================================================================
+    async sincronizarInstancias() {
+        const meetingRooms = await this.zoomRepository.getMeetings();
+        const instances = [];
+        for (const mr of meetingRooms) {
+            console.log("mr => ", mr);
+            const res = await this.zoomHttp.getMeetingInstances(mr.zoom_meeting_id);
+            instances.push(...res.meetings.map((m) => ({
+                uuid: m.uuid,
+                start_time: m.start_time ? new Date(m.start_time) : null,
+                meeting_id: mr.id,
+            })));
+        }
+        await this.zoomRepository.upsertZoomMeetingInstances(instances);
+        return instances;
+    }
+    // ===================================================================================
+    async sincronizarParticipantesRaw() {
+        const instances = await this.zoomRepository.getInstances({
+            participantsSynced: false,
+        });
+        const rooms = (await this.zoomRepository.getZoomUsers({ role: "host" })).map((z) => z.zoom_user_id);
+        for (const instance of instances) {
+            try {
+                let nextPageToken = undefined;
+                const participants = [];
+                do {
+                    const res = await this.zoomHttp.getMeetingReportDetailParticipants(instance.uuid, nextPageToken);
+                    participants.push(...(res.participants ?? []));
+                    nextPageToken = res.next_page_token;
+                } while (nextPageToken);
+                const rows = participants.map((p) => ({
+                    instance_id: instance.id,
+                    participant_id: p.id ?? null,
+                    participant_user_id: p.participant_user_id ?? null,
+                    user_id: p.user_id ?? null,
+                    name: p.name ?? null,
+                    email: p.user_email ?? null,
+                    joinTime: p.join_time ? new Date(p.join_time) : null,
+                    leaveTime: p.leave_time ? new Date(p.leave_time) : null,
+                    duration: p.duration ?? null,
+                    status: p.status ?? null,
+                }));
+                if (rows.length > 0) {
+                    await this.zoomRepository.insertZoomMeetingParticipantRaw(rows);
+                }
+                const tieneHost = participants.some((p) => rooms.includes(p.id ?? ""));
+                await this.zoomRepository.upsertZoomMeetingInstances([
+                    {
+                        uuid: instance.uuid,
+                        meeting_id: instance.meeting_id,
+                        participantsSynced: true,
+                        updated_at: new Date(),
+                        ...(tieneHost ? {} : { attendance_status: "SIN_SALA" }),
+                    },
+                ]);
+            }
+            catch (error) {
+                console.error(`Error sincronizando participants instance ${instance.id}`, error);
+            }
+        }
+        return true;
+    }
+    // ===================================================================================
+    async sincronizarParticipantes() {
+        const config = await this.zoomRepository.getAttendanceConfig();
+        const gapMs = config.gap * 60 * 1000;
+        const rooms = (await this.zoomRepository.getZoomUsers({ role: "host" })).map((z) => z.zoom_user_id);
+        const instances = await this.zoomRepository.getInstances({
+            participantsProcessed: false,
+            participantsSynced: true,
+            attendance_status: "PENDING",
+        }); //.filter((i) => [945].includes(i.id)); //.filter((i) => [118].includes(i.meeting_id));
+        for (const instance of instances) {
+            const raw = await this.zoomRepository.getZoomMeetingParticipantRaw(instance.id);
+            const matriculados = await this.zoomRepository.getMatriculadosCourseid(instance.courseid);
+            const map = new Map();
+            for (const p of raw) {
+                const key = p.email?.trim().toLowerCase() ||
+                    p.name?.trim().toUpperCase() ||
+                    `unknown_${p.user_id ?? Math.random()}`;
+                if (!map.has(key)) {
+                    map.set(key, []);
+                }
+                const arr = map.get(key);
+                arr.push(p);
+            }
+            const procesados = [];
+            //===================================================================
+            for (const [, sesiones] of map.entries()) {
+                sesiones.sort((a, b) => new Date(a.join_time).getTime() - new Date(b.join_time).getTime());
+                let actual = null;
+                const bloques = [];
+                for (const s of sesiones) {
+                    const join = new Date(s.join_time);
+                    const leave = new Date(s.leave_time);
+                    if (!actual) {
+                        actual = { ...s };
+                        continue;
+                    }
+                    const gap = join.getTime() - new Date(actual.leave_time).getTime();
+                    const overlap = join.getTime() <= new Date(actual.leave_time).getTime();
+                    if (gap <= gapMs || overlap) {
+                        // 🔗 merge
+                        actual.leave_time = new Date(Math.max(leave.getTime(), new Date(actual.leave_time).getTime()));
+                    }
+                    else {
+                        // 🔹 guardar bloque
+                        const start = new Date(actual.join_time);
+                        const end = new Date(actual.leave_time);
+                        bloques.push({
+                            join: start,
+                            leave: end,
+                            duration: (end.getTime() - start.getTime()) / 1000,
+                        });
+                        actual = { ...s };
+                    }
+                }
+                if (actual) {
+                    const start = new Date(actual.join_time);
+                    const end = new Date(actual.leave_time);
+                    bloques.push({
+                        join: start,
+                        leave: end,
+                        duration: (end.getTime() - start.getTime()) / 1000,
+                    });
+                }
+                const firstJoin = bloques[0]?.join ?? null;
+                const lastLeave = bloques[bloques.length - 1]?.leave ?? null;
+                const totalDuration = bloques.reduce((sum, b) => sum + b.duration, 0);
+                procesados.push({
+                    instance_id: instance.id,
+                    zoomUser_id: sesiones[0].participant_id ?? null,
+                    name: sesiones[0].name ?? null,
+                    email: sesiones[0].email ?? null,
+                    firstJoin,
+                    lastLeave,
+                    duration: totalDuration,
+                    sessions: bloques,
+                    attendance: null,
+                    late: null,
+                });
+            }
+            //===================================================================
+            //Procesar host
+            const host = procesados.find((pr) => rooms.includes(pr.zoomUser_id ?? ""));
+            if (!host) {
+                await this.zoomRepository.upsertZoomMeetingInstances([
+                    {
+                        uuid: instance.uuid,
+                        meeting_id: instance.meeting_id,
+                        participantsProcessed: true,
+                        updated_at: new Date(),
+                        attendance_status: "SIN_SALA",
+                    },
+                ]);
+                continue;
+            }
+            const sessions = host?.sessions ?? [];
+            const start_time = sessions[0]?.join;
+            const end_time = sessions[sessions.length - 1]?.leave;
+            const duration = sessions.reduce((sum, s) => sum + s.duration, 0);
+            host.role = "host";
+            const n_numdia = start_time ? start_time.getDay() : null;
+            const docentesSigu = await this.zoomRepository.getDocentes(instance.courseid, n_numdia);
+            const dataGrupos = await this.zoomRepository.getHorarioGrupo(instance.courseid, n_numdia);
+            const a_c_grpcur = dataGrupos.map((d) => d.c_grpcur);
+            console.log("a_c_grpcur => ", a_c_grpcur);
+            let docenteDni = null;
+            if (docentesSigu.length === 1) {
+                docenteDni = docentesSigu[0]?.c_dnidoc ?? null;
+            }
+            else if (docentesSigu.length > 1 && start_time) {
+                const hostHour = start_time.getHours().toString().padStart(2, "0");
+                console.log("hostHour => ", hostHour);
+                const match = docentesSigu.find((d) => {
+                    const horaDocente = String(d.c_hh_ini ?? "").padStart(2, "0");
+                    return horaDocente === hostHour;
+                });
+                docenteDni = match?.c_dnidoc ?? docentesSigu[0]?.c_dnidoc ?? null;
+            }
+            host.c_dnidoc = docenteDni;
+            for (const procesado of procesados) {
+                if (procesado.role === "host")
+                    continue;
+                const correoZoom = this.extraerCorreo(procesado.email) ??
+                    this.extraerCorreo(procesado.name);
+                let matriculado = matriculados.find((m) => {
+                    if (!correoZoom || !m.c_email_institucional)
+                        return false;
+                    return correoZoom === m.c_email_institucional.trim().toLowerCase();
+                });
+                if (!matriculado && procesado.name) {
+                    const candidatos = matriculados
+                        .map((m) => {
+                        if (!m.nombre)
+                            return null;
+                        const resultado = this.calcularSimilitudNombre(procesado.name, m.nombre);
+                        return {
+                            matriculado: m,
+                            porcentaje: resultado.porcentaje,
+                            coincidencias: resultado.coincidencias,
+                            palabrasZoom: resultado.palabrasZoom,
+                            palabrasSigu: resultado.palabrasSigu,
+                        };
+                    })
+                        .filter((item) => item !== null)
+                        .filter((item) => item.porcentaje >= 0.75)
+                        .sort((a, b) => b.porcentaje - a.porcentaje);
+                    const mejor = candidatos[0];
+                    const segundo = candidatos[1];
+                    if (mejor &&
+                        (!segundo || mejor.porcentaje - segundo.porcentaje >= 0.15)) {
+                        matriculado = mejor.matriculado;
+                    }
+                    else {
+                        console.warn("No se asignó alumno por coincidencia ambigua o baja", {
+                            zoom: procesado.name,
+                            candidatos: candidatos.slice(0, 5).map((c) => ({
+                                c_codalu: c.matriculado.c_codalu,
+                                nombre: c.matriculado.nombre,
+                                porcentaje: c.porcentaje,
+                                coincidencias: c.coincidencias,
+                            })),
+                        });
+                    }
+                }
+                procesado.c_codalu = matriculado?.c_codalu
+                    ? String(matriculado.c_codalu)
+                    : null;
+                procesado.c_codfac = matriculado?.c_codfac ?? null;
+                procesado.c_codesp = matriculado?.c_codesp ?? null;
+                procesado.c_codmod = matriculado?.c_codmod
+                    ? String(matriculado.c_codmod)
+                    : null;
+                procesado.c_grpcur = matriculado?.c_grpcur ?? null;
+                procesado.corresponde_sesion = a_c_grpcur.includes(matriculado?.c_grpcur ?? "");
+                procesado.role = "student";
+                // Attendance
+                if (start_time && end_time && procesado.duration != null) {
+                    const meetingDuration = (end_time.getTime() - start_time.getTime()) / 1000; // en segundos
+                    const percentage = procesado.duration / meetingDuration;
+                    procesado.attendance = percentage >= config.minAttendancePercentage;
+                }
+                else {
+                    procesado.attendance = false;
+                }
+                // Late
+                if (start_time && procesado.firstJoin) {
+                    const toleranceMs = config.lateToleranceMinutes * 60 * 1000;
+                    const diff = procesado.firstJoin.getTime() - start_time.getTime();
+                    procesado.late = diff > toleranceMs;
+                }
+                else {
+                    procesado.late = null;
+                }
+            }
+            const fechaClase = start_time
+                ? [
+                    start_time.getFullYear(),
+                    String(start_time.getMonth() + 1).padStart(2, "0"),
+                    String(start_time.getDate()).padStart(2, "0"),
+                ].join("-")
+                : null;
+            if (!fechaClase) {
+                throw new Error("No se pudo obtener la fecha de inicio de la clase.");
+            }
+            const procesadosFinal = Array.from(procesados
+                .reduce((map, p) => {
+                const isHost = p.role === "host";
+                const key = isHost
+                    ? `host-${p.zoomUser_id ?? p.name ?? "unknown"}`
+                    : p.c_codalu
+                        ? `student-${p.c_codalu}`
+                        : `unmatched-${p.zoomUser_id ?? p.email ?? p.name ?? Math.random()}`;
+                const actual = map.get(key);
+                const sesionesActuales = Array.isArray(p.sessions)
+                    ? p.sessions
+                    : [];
+                if (!actual) {
+                    map.set(key, {
+                        ...p,
+                        duration: Number(p.duration ?? 0),
+                        sessions: sesionesActuales,
+                    });
+                    return map;
+                }
+                const firstJoinActual = actual.firstJoin
+                    ? new Date(actual.firstJoin)
+                    : null;
+                const firstJoinNuevo = p.firstJoin ? new Date(p.firstJoin) : null;
+                const lastLeaveActual = actual.lastLeave
+                    ? new Date(actual.lastLeave)
+                    : null;
+                const lastLeaveNuevo = p.lastLeave ? new Date(p.lastLeave) : null;
+                actual.duration =
+                    Number(actual.duration ?? 0) + Number(p.duration ?? 0);
+                if (firstJoinNuevo &&
+                    (!firstJoinActual || firstJoinNuevo < firstJoinActual)) {
+                    actual.firstJoin = firstJoinNuevo;
+                }
+                if (lastLeaveNuevo &&
+                    (!lastLeaveActual || lastLeaveNuevo > lastLeaveActual)) {
+                    actual.lastLeave = lastLeaveNuevo;
+                }
+                actual.sessions = [
+                    ...(Array.isArray(actual.sessions) ? actual.sessions : []),
+                    ...sesionesActuales,
+                ].sort((a, b) => new Date(a.join).getTime() - new Date(b.join).getTime());
+                actual.c_codalu = actual.c_codalu ?? p.c_codalu ?? null;
+                actual.c_codfac = actual.c_codfac ?? p.c_codfac ?? null;
+                actual.c_codesp = actual.c_codesp ?? p.c_codesp ?? null;
+                actual.c_codmod = actual.c_codmod ?? p.c_codmod ?? null;
+                actual.c_grpcur = actual.c_grpcur ?? p.c_grpcur ?? null;
+                actual.corresponde_sesion =
+                    Number(actual.corresponde_sesion ?? 0) === 1 ||
+                        Number(p.corresponde_sesion ?? 0) === 1;
+                return map;
+            }, new Map())
+                .values());
+            for (const procesado of procesadosFinal) {
+                if (procesado.role === "host")
+                    continue;
+                if (start_time && end_time && procesado.duration != null) {
+                    const meetingDuration = (end_time.getTime() - start_time.getTime()) / 1000;
+                    const percentage = Number(procesado.duration) / meetingDuration;
+                    procesado.attendance = percentage >= config.minAttendancePercentage;
+                }
+                else {
+                    procesado.attendance = false;
+                }
+                if (start_time && procesado.firstJoin) {
+                    const toleranceMs = config.lateToleranceMinutes * 60 * 1000;
+                    const diff = new Date(procesado.firstJoin).getTime() - start_time.getTime();
+                    procesado.late = diff > toleranceMs;
+                }
+                else {
+                    procesado.late = null;
+                }
+            }
+            await this.zoomRepository.insertZoomMeetingParticipants(procesadosFinal);
+            // await this.zoomRepository.insertZoomMeetingParticipants(procesados);
+            const cantidad = await this.zoomRepository.getMatriculadosCantindad(instance.courseid, fechaClase);
+            await this.zoomRepository.upsertZoomMeetingInstances([
+                {
+                    uuid: instance.uuid,
+                    meeting_id: instance.meeting_id,
+                    start_time: start_time ? new Date(start_time) : null,
+                    end_time: end_time ? new Date(end_time) : null,
+                    duration,
+                    participantsProcessed: true,
+                    updated_at: new Date(),
+                    total_participantes: procesadosFinal.filter((p) => p.role !== "host")
+                        .length,
+                    total_matriculados: cantidad.cantidad,
+                    attendance_status: duration < config.minTime * 60
+                        ? "SKIPPED_SHORT_INSTANCE"
+                        : instance.attendance_status,
+                },
+            ]);
+        }
+        return true;
+    }
+    // ===================================================================================
+    async sincronizarAsistencias() {
+        const instances = (await this.zoomRepository.getInstances({
+            participantsProcessed: true,
+            participantsSynced: true,
+            attendance_status: "PENDING",
+        }))
+            // ).filter((i) =>
+            //   [
+            //     // 118
+            //     4376,
+            //   ].includes(i.meeting_id),
+            .filter((i) => [185319, 1179].includes(i.id));
+        // const instances = await this.zoomRepository.getInstances({
+        //   participantsProcessed: true,
+        //   participantsSynced: true,
+        //   attendance_status: "PENDING",
+        // });
+        const tbCursoGrupoSincro = await this.zoomRepository.getTbCursoGrupoSincro();
+        for (const instance of instances) {
+            if (!instance.courseid) {
+                console.warn(`Instance ${instance.id} sin courseid, skipeando`);
+                await this.zoomRepository.upsertZoomMeetingInstances([
+                    {
+                        uuid: instance.uuid,
+                        meeting_id: instance.meeting_id,
+                        attendance_status: "SIN_COURSEID",
+                        updated_at: new Date(),
+                    },
+                ]);
+                continue;
+            }
+            const cursoGrupo = tbCursoGrupoSincro.find((item) => Number(item.courseid) === Number(instance.courseid));
+            const facultadesPermitidas = ["E", "S"];
+            if (!cursoGrupo) {
+                console.warn(`Instance ${instance.id} con courseid ${instance.courseid} no existe en tb_curso_grupo_sincro`);
+                await this.zoomRepository.upsertZoomMeetingInstances([
+                    {
+                        uuid: instance.uuid,
+                        meeting_id: instance.meeting_id,
+                        attendance_status: "SIN_COURSEID",
+                        updated_at: new Date(),
+                    },
+                ]);
+                continue;
+            }
+            if (!facultadesPermitidas.includes(cursoGrupo.c_codfac)) {
+                console.warn(`Instance ${instance.id} omitida. Courseid ${instance.courseid} pertenece a facultad ${cursoGrupo.c_codfac}`);
+                await this.zoomRepository.upsertZoomMeetingInstances([
+                    {
+                        uuid: instance.uuid,
+                        meeting_id: instance.meeting_id,
+                        attendance_status: "SKIPPED_FACULTAD_NO_PERMITIDA",
+                        updated_at: new Date(),
+                    },
+                ]);
+                continue;
+            }
+            console.log("====================================");
+            console.log("instacia.id => ", instance.id);
+            console.log("courseid => ", instance.courseid);
+            console.log("instance.start_time => ", new Date(instance.start_time.getTime() - 5 * 60 * 60 * 1000).toISOString());
+            const d_fecha = instance.start_time
+                ? new Date(instance.start_time.getTime() - 5 * 60 * 60 * 1000)
+                    .toISOString()
+                    .slice(0, 10)
+                : null;
+            const dniDocente = await this.zoomRepository.getDocenteParticipantes(instance.id);
+            if (!dniDocente?.c_dnidoc) {
+                await this.zoomRepository.upsertZoomMeetingInstances([
+                    {
+                        uuid: instance.uuid,
+                        meeting_id: instance.meeting_id,
+                        attendance_status: "SIN_DNIDOCENTE",
+                        updated_at: new Date(),
+                    },
+                ]);
+                console.log("sin docente detectado");
+                continue;
+            }
+            const sesion = await this.zoomRepository.sesionExistente(instance.courseid, d_fecha ?? "", dniDocente?.c_dnidoc ?? "");
+            if (sesion && sesion.length > 0) {
+                await this.zoomRepository.upsertZoomMeetingInstances([
+                    {
+                        uuid: instance.uuid,
+                        meeting_id: instance.meeting_id,
+                        attendance_status: "ALREADY_EXISTS",
+                        id_asistencia: sesion.map((s) => s.id_asistencia).join(","),
+                        updated_at: new Date(),
+                    },
+                ]);
+                continue;
+            }
+            const sesionGrupo = await this.zoomRepository.getHorarioGrupo(instance.courseid, instance.start_time.getDay(), dniDocente.c_dnidoc);
+            if (!d_fecha) {
+                throw new Error("No se puede crear la sesión porque d_fecha es null");
+            }
+            const diasSemana = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+            const fechaLocal = new Date(instance.start_time.getTime() - 5 * 60 * 60 * 1000);
+            const diaTexto = diasSemana[fechaLocal.getUTCDay()];
+            const horaInicio = fechaLocal.toISOString().slice(11, 16);
+            const dataSesiones = sesionGrupo.map((s) => ({
+                n_codper: s.n_codper,
+                c_codmod: s.c_codmod,
+                c_codfac: s.c_codfac,
+                c_codesp: s.c_codesp,
+                c_codcur: s.c_codcur,
+                c_grpcur: s.c_grpcur,
+                c_dnidoc: s.c_dnidoc,
+                d_fecha: d_fecha,
+                d_fecha_registro: d_fecha,
+                c_tema: `[AUTO] ${instance.topic?.trim() || `${s.c_codcur}-${s.c_grpcur}`} (${diaTexto} ${d_fecha} ${horaInicio} - Doc. ${dniDocente.c_dnidoc})`.slice(0, 150),
+                n_codpla: s.n_codpla,
+                c_user_upd: "boot.v2",
+                d_fecha_upd: new Date(),
+            }));
+            console.log("dataSesiones => ", dataSesiones);
+            const sesionesCreadas = await this.zoomRepository.createSesiones(dataSesiones);
+            const sesiones = await this.zoomRepository.getSesiones(20261, instance.courseid, d_fecha, dniDocente?.c_dnidoc || "");
+            const participantes = await this.zoomRepository.getZoomMeetingParticipant(instance.id);
+            const part = participantes
+                .filter((p) => Number(p.corresponde_sesion) === 1 && Number(p.attendance) === 1)
+                .map((p) => {
+                const sesion = sesiones.find((s) => String(s.c_codesp) === String(p.c_codesp) &&
+                    String(s.c_codmod) === String(p.c_codmod) &&
+                    String(s.c_grpcur) === String(p.c_grpcur));
+                if (!sesion?.id_asistencia) {
+                    return null;
+                }
+                return {
+                    id_asistencia: sesion.id_asistencia,
+                    c_codalu: p.c_codalu,
+                    c_estado: p.late ? "T" : "A",
+                    seguir: new Date(),
+                };
+            })
+                .filter((p) => p !== null);
+            const createSesionDetalle = 
+            // await this.zoomRepository.createAsistenciaDetalles(part);
+            console.log("====================================");
+            // await this.zoomRepository.upsertZoomMeetingInstances([
+            //   {
+            //     uuid: instance.uuid,
+            //     meeting_id: instance.meeting_id,
+            //     updated_at: new Date(),
+            //     attendance_status: "UPLOADED",
+            //   },
+            // ]);
+        }
+        return true;
+    }
+}
+exports.ZoomService = ZoomService;
+//# sourceMappingURL=service.js.map
