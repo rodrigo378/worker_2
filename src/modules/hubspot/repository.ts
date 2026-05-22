@@ -14,7 +14,7 @@ export class HubspotRepository {
   constructor(private readonly registry: DbRegistry) {}
 
   // ===================================================================================
-  private db(dbName: DbName): Knex {
+  public db(dbName: DbName): Knex {
     return this.registry.get(dbName);
   }
 
@@ -238,18 +238,29 @@ export class HubspotRepository {
   }
 
   // ===================================================================================
-  async hasRunningSync(source: string) {
+  async getLastSyncLog(source?: string) {
     const db = this.db("API_2");
 
-    const row = await db("api_hubspot_sync_log")
-      .where({
-        source,
-        status: "running",
-      })
-      .whereNull("finishedAt")
+    const query = db("api_hubspot_sync_log")
+      .select(
+        "id",
+        "source",
+        "startedAt",
+        "finishedAt",
+        "status",
+        "recordsProcessed",
+        "error",
+      )
+      .whereIn("status", ["success", "failed"])
+      .whereNotNull("finishedAt")
+      .orderBy("finishedAt", "desc")
       .first();
 
-    return Boolean(row);
+    if (source) {
+      query.andWhere({ source });
+    }
+
+    return await query;
   }
 
   // ===================================================================================
@@ -271,25 +282,34 @@ export class HubspotRepository {
   }
 
   // ===================================================================================
-  async finishSyncLog(
+  async updateSyncLog(
     id: string,
     data: {
-      status: "success" | "failed";
+      source?: string;
+      status?: "running" | "success" | "failed";
+      finishedAt?: boolean;
       recordsProcessed?: number | null;
       error?: string | null;
     },
   ) {
     const db = this.db("API_2");
 
-    await db("api_hubspot_sync_log")
-      .where({ id })
-      .update({
-        finishedAt: new Date().toISOString().slice(0, 19).replace("T", " "),
-        status: data.status,
-        recordsProcessed: data.recordsProcessed ?? null,
-        error: data.error ? data.error.slice(0, 191) : null,
-      });
+    const updateData: any = {};
 
+    if (data.source !== undefined) updateData.source = data.source;
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.recordsProcessed !== undefined)
+      updateData.recordsProcessed = data.recordsProcessed;
+    if (data.error !== undefined)
+      updateData.error = data.error ? data.error.slice(0, 191) : null;
+    if (data.finishedAt === true) {
+      updateData.finishedAt = new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", " ");
+    }
+
+    await db("api_hubspot_sync_log").where({ id }).update(updateData);
     return true;
   }
 
@@ -300,5 +320,17 @@ export class HubspotRepository {
     `);
 
     return rows as Api_Hubspot[];
+  }
+
+  // ===================================================================================
+  async isSyncRunning() {
+    const db = this.db("API_2");
+    const lockName = "hubspot_sync_lock";
+
+    // IS_USED_LOCK devuelve el connection_id del que tiene el lock, o NULL si nadie lo tiene
+    const result: any = await db.raw(`SELECT IS_USED_LOCK(?) as used_by`, [
+      lockName,
+    ]);
+    return result;
   }
 }

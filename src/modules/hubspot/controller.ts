@@ -4,21 +4,23 @@ import { HubspotService } from "./service";
 export class HubspotController {
   constructor(private service: HubspotService) {}
 
-  sincronizarContactos = async (_req: FastifyRequest, reply: FastifyReply) => {
-    const data = await this.service.sincronizarContactos();
-    return reply.send(data);
-  };
-
-  sincronizarConsolidado = async (
-    _req: FastifyRequest,
-    reply: FastifyReply,
-  ) => {
-    const data = await this.service.sincronizarConsolidado();
-    return reply.send(data);
-  };
-
   ejecutarSyncManual = async (_req: FastifyRequest, reply: FastifyReply) => {
-    const data = await this.service.ejecutarSincronizacionCompleta();
-    return reply.send(data);
+    const isRunning = await this.service.isSyncRunning();
+    if (isRunning) {
+      return reply.code(409).send({
+        ok: false,
+        running: true,
+        message: "La sincronización ya se está ejecutando.",
+      });
+    }
+
+    this.service.ejecutarSincronizacionCompleta().catch((error) => {
+      console.error("Error en sincronización manual:", error);
+    });
+
+    return reply.code(202).send({
+      ok: true,
+      message: "Sincronización iniciada en segundo plano",
+    });
   };
 }
