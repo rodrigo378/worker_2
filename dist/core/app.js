@@ -10,6 +10,7 @@ const db_1 = require("./db");
 const routes_1 = require("./routes");
 const crons_1 = require("./crons");
 async function buildApp() {
+    console.log("v2");
     const app = (0, fastify_1.default)({ logger: true });
     const db = await (0, db_1.initDb)(env_1.env.DB_CONNECTIONS);
     app.decorate("db", db);

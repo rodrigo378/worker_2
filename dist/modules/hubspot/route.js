@@ -10,8 +10,6 @@ async function hubspotRouter(app) {
     const repository = new repository_1.HubspotRepository(app.db);
     const service = new service_1.HubspotService(http, repository);
     const controller = new controller_1.HubspotController(service);
-    app.get("/sinc/contactos", controller.sincronizarContactos);
-    app.get("/sinc/consolidado", controller.sincronizarConsolidado);
     app.post("/sinc/run", controller.ejecutarSyncManual);
 }
 //# sourceMappingURL=route.js.map

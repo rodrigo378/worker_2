@@ -2,7 +2,6 @@ import Fastify from "fastify";
 import { env } from "./config/env";
 import { initDb } from "./db";
 import { registerRoutes } from "./routes";
-import { registerCrons } from "./crons";
 
 export async function buildApp() {
   console.log("v2");
@@ -13,7 +12,7 @@ export async function buildApp() {
   app.decorate("db", db);
 
   await registerRoutes(app);
-  await registerCrons(db);
+  // await registerCrons(db);
 
   app.addHook("onClose", async () => {
     await db.closeAll();
