@@ -1,28 +1,19 @@
 {
-  "name": "node_api",
+  "name": "worker-sync",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "dist/main.js",
   "scripts": {
-    "dev": "nodemon",
+    "dev": "tsx watch src/main.ts",
     "build": "tsc",
-    "start": "node dist/main.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node dist/main.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Worker de sincronización Zoom y Hubspot",
   "dependencies": {
-    "@bull-board/api": "^7.1.5",
-    "@bull-board/fastify": "^7.1.5",
-    "@fastify/cors": "^11.2.0",
-    "@fastify/helmet": "^13.0.2",
-    "@fastify/rate-limit": "^10.3.0",
-    "@fastify/swagger": "^9.7.0",
-    "@fastify/swagger-ui": "^5.2.5",
     "bullmq": "^5.76.5",
     "dotenv": "^17.3.1",
-    "fastify": "^5.7.4",
     "ioredis": "^5.11.0",
     "knex": "^3.1.0",
     "luxon": "^3.7.2",
@@ -33,11 +24,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/ioredis": "^4.28.10",
     "@types/luxon": "^3.7.1",
     "@types/node": "^25.2.3",
-    "nodemon": "^3.1.14",
-    "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
