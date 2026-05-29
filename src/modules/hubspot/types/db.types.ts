@@ -29,8 +29,8 @@ export interface Api_Hubspot {
   fecha_de_inicio_academico: string | null;
   turno: string | null;
 
-  createdAt: Date;
-  updatedAt: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface Api_Hubspot_Consolidado {
@@ -65,8 +65,8 @@ export interface Api_Hubspot_Consolidado {
 
   cantidad: number;
   ids: string;
-  createdAt: Date;
-  updatedAt: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface Api_Hubspot_SyncLog {

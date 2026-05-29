@@ -26,10 +26,6 @@ export function buildHubspotHandler(service: HubspotService) {
         result = await service.sincronizarConsolidado();
         break;
 
-      case HUBSPOT_ACTIONS.SYNC_COMPLETA:
-        result = await service.ejecutarSincronizacionCompleta();
-        break;
-
       default:
         throw new Error(`[HUBSPOT] Action no manejada: "${action}"`);
     }

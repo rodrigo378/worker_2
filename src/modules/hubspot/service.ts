@@ -12,6 +12,8 @@ export class HubspotService {
 
   // ===================================================================================
   async sincronizarContactos() {
+    console.log("se inicio sincro contacto");
+
     let after: string | undefined;
     let totalInsertados = 0;
     const BUFFER_SIZE = 1000;
@@ -51,8 +53,8 @@ export class HubspotService {
           fecha_de_inicio_academico:
             c.properties.fecha_de_inicio_academico ?? null,
           turno: c.properties.turno ?? null,
-          createdAt: c.createdAt,
-          updatedAt: c.updatedAt,
+          created_at: c.createdAt,
+          updated_at: c.updatedAt,
         }),
       );
 
@@ -76,6 +78,8 @@ export class HubspotService {
 
   // ===================================================================================
   async sincronizarConsolidado() {
+    console.log("inicio");
+
     const contactos = await this.repo.getContactos();
 
     const grupos = new Map<string, typeof contactos>();
@@ -118,126 +122,13 @@ export class HubspotService {
         turno: contac[0]?.turno || "",
         cantidad: contac.length,
         ids: contac.map((c) => c.id).join(","),
-        createdAt: contac[0]?.createdAt
-          ? new Date(contac[0].createdAt)
-          : new Date(),
-        updatedAt: contac[0]?.updatedAt
-          ? new Date(contac[0].updatedAt)
-          : new Date(),
+        created_at: contac[0]?.created_at ?? new Date(),
+        updated_at: contac[0]?.updated_at ?? new Date(),
       });
     }
 
     await this.repo.upsertManyHubspotConsolidado(arrayContactos);
+    console.log("fin");
     return true;
-  }
-  // hubspot.service.ts
-  async getSyncEnCurso() {
-    return this.repo.getSyncEnCurso();
-  }
-
-  // ===================================================================================
-  async ejecutarSincronizacionCompleta() {
-    const lockName = "hubspot_sync_lock";
-
-    const db = this.repo.db("API_2");
-    const conn: any = await db.client.acquireConnection();
-    let gotLock = false;
-
-    try {
-      const lockResult: any = await conn
-        .promise()
-        .query(`SELECT GET_LOCK(?, 0) as got_lock`, [lockName]);
-      gotLock = lockResult?.[0]?.[0]?.got_lock === 1;
-
-      if (!gotLock) {
-        // 👇 buscar el sync en curso para devolver cuando inicio
-        const db = this.repo.db("API_2");
-        const enCurso: any = await db("api_hubspot_sync_log")
-          .whereNull("finishedAt")
-          .andWhere("status", "running")
-          .orderBy("startedAt", "desc")
-          .first();
-
-        return {
-          ok: false,
-          running: true,
-          message: "La sincronización de HubSpot ya se está ejecutando.",
-          startedAt: enCurso?.startedAt ?? null,
-          currentStage: enCurso?.source ?? null,
-          elapsedSeconds: enCurso?.startedAt
-            ? Math.floor(
-                (Date.now() - new Date(enCurso.startedAt).getTime()) / 1000,
-              )
-            : null,
-        };
-      }
-
-      console.log(`[HUBSPOT] Lock '${lockName}' tomado ✓`);
-
-      // 👇 UN SOLO log para toda la sync
-      const logId = await this.repo.createSyncLog("hubspot_sync:iniciando");
-      let totalContactos = 0;
-
-      try {
-        // ETAPA 1: contactos
-        await this.repo.updateSyncLog(logId, {
-          source: "hubspot_sync:contactos",
-        });
-        console.log("[HUBSPOT] Sincronizando contactos...");
-        totalContactos = await this.sincronizarContactos();
-        console.log(`[HUBSPOT] Contactos sincronizados: ${totalContactos}`);
-
-        await this.repo.updateSyncLog(logId, {
-          recordsProcessed: totalContactos,
-        });
-
-        // ETAPA 2: consolidado
-        await this.repo.updateSyncLog(logId, {
-          source: "hubspot_sync:consolidado",
-        });
-        console.log("[HUBSPOT] Sincronizando consolidado...");
-        await this.sincronizarConsolidado();
-        console.log("[HUBSPOT] Consolidado sincronizado");
-
-        // FINALIZAR EXITOSO
-        await this.repo.updateSyncLog(logId, {
-          source: "hubspot_sync:completado",
-          status: "success",
-          recordsProcessed: totalContactos,
-          finishedAt: true,
-        });
-
-        return {
-          ok: true,
-          running: false,
-          recordsProcessed: totalContactos,
-          message: "Sincronización HubSpot completada correctamente.",
-        };
-      } catch (err: any) {
-        // FINALIZAR CON ERROR
-        await this.repo.updateSyncLog(logId, {
-          status: "failed",
-          recordsProcessed: totalContactos,
-          error: err?.message ?? String(err),
-          finishedAt: true,
-        });
-        throw err;
-      }
-    } finally {
-      if (gotLock) {
-        try {
-          await conn.promise().query(`SELECT RELEASE_LOCK(?)`, [lockName]);
-          console.log(`[HUBSPOT] Lock '${lockName}' liberado ✓`);
-        } catch (e) {
-          console.error("[HUBSPOT] Error liberando lock:", e);
-        }
-      }
-      await db.client.releaseConnection(conn);
-    }
-  }
-  // ===================================================================================
-  async isSyncRunning() {
-    const result = await this.repo.isSyncRunning();
-    return result?.[0]?.[0]?.used_by !== null;
   }
 }

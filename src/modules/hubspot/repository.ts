@@ -25,8 +25,33 @@ export class HubspotRepository {
     const db = this.db("API_2");
     const BATCH_SIZE = 500;
 
-    const toMysqlDate = (date: any) =>
-      date ? new Date(date).toISOString().slice(0, 19).replace("T", " ") : null;
+    const toMysqlDate = (value: any): string | null => {
+      if (!value) return null;
+
+      const date = value instanceof Date ? value : new Date(value);
+
+      if (Number.isNaN(date.getTime())) return null;
+
+      const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Lima",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+
+      const parts = formatter.formatToParts(date);
+
+      const get = (type: string) =>
+        parts.find((p) => p.type === type)?.value.padStart(2, "0");
+
+      return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get(
+        "minute",
+      )}:${get("second")}`;
+    };
 
     const rows = data.map((d) => ({
       id: d.id,
@@ -59,8 +84,8 @@ export class HubspotRepository {
       fecha_de_inicio_academico: d.fecha_de_inicio_academico ?? null,
       turno: d.turno ?? null,
 
-      createdAt: toMysqlDate(d.createdAt) ?? toMysqlDate(new Date()),
-      updatedAt: toMysqlDate(d.updatedAt) ?? toMysqlDate(new Date()),
+      created_at: toMysqlDate(d.created_at) ?? toMysqlDate(new Date()),
+      updated_at: toMysqlDate(d.updated_at) ?? toMysqlDate(new Date()),
     }));
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
@@ -100,7 +125,7 @@ export class HubspotRepository {
           turno: db.raw("VALUES(turno)"),
 
           lastname: db.raw("VALUES(lastname)"),
-          updatedAt: db.raw("VALUES(updatedAt)"),
+          updated_at: db.raw("VALUES(updated_at)"),
         });
     }
 
@@ -114,8 +139,33 @@ export class HubspotRepository {
     const db = this.db("API_2");
     const BATCH_SIZE = 500;
 
-    const toMysqlDate = (date: any) =>
-      date ? new Date(date).toISOString().slice(0, 19).replace("T", " ") : null;
+    const toMysqlDate = (value: any): string | null => {
+      if (!value) return null;
+
+      const date = value instanceof Date ? value : new Date(value);
+
+      if (Number.isNaN(date.getTime())) return null;
+
+      const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Lima",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+
+      const parts = formatter.formatToParts(date);
+
+      const get = (type: string) =>
+        parts.find((p) => p.type === type)?.value.padStart(2, "0");
+
+      return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get(
+        "minute",
+      )}:${get("second")}`;
+    };
 
     const rows = data.map((d) => ({
       id: d.id,
@@ -147,8 +197,8 @@ export class HubspotRepository {
       turno: d.turno ?? null,
       cantidad: d.cantidad,
       ids: d.ids,
-      createdAt: toMysqlDate(d.createdAt) ?? toMysqlDate(new Date()),
-      updatedAt: toMysqlDate(d.updatedAt) ?? toMysqlDate(new Date()),
+      created_at: toMysqlDate(d.created_at) ?? toMysqlDate(new Date()),
+      updated_at: toMysqlDate(d.updated_at) ?? toMysqlDate(new Date()),
     }));
 
     const columnasUpdate = [
@@ -179,7 +229,7 @@ export class HubspotRepository {
       "turno",
       "cantidad",
       "ids",
-      "updatedAt",
+      "updated_at",
     ];
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
@@ -234,91 +284,6 @@ export class HubspotRepository {
       const result: any = await db.raw(sql, valores);
     }
 
-    return true;
-  }
-
-  // ===================================================================================
-  async getLastSyncLog(source?: string) {
-    const db = this.db("API_2");
-
-    const query = db("api_hubspot_sync_log")
-      .select(
-        "id",
-        "source",
-        "startedAt",
-        "finishedAt",
-        "status",
-        "recordsProcessed",
-        "error",
-      )
-      .whereIn("status", ["success", "failed"])
-      .whereNotNull("finishedAt")
-      .orderBy("finishedAt", "desc")
-      .first();
-
-    if (source) {
-      query.andWhere({ source });
-    }
-
-    return await query;
-  }
-
-  // ===================================================================================
-  async createSyncLog(source: string) {
-    const db = this.db("API_2");
-    const id = randomUUID();
-
-    await db("api_hubspot_sync_log").insert({
-      id,
-      source,
-      startedAt: new Date().toISOString().slice(0, 19).replace("T", " "),
-      finishedAt: null,
-      status: "running",
-      recordsProcessed: null,
-      error: null,
-    });
-
-    return id;
-  }
-
-  async getSyncEnCurso() {
-    const db = this.db("API_2");
-    return db("api_hubspot_sync_log")
-      .whereNull("finishedAt")
-      .andWhere("status", "running")
-      .orderBy("startedAt", "desc")
-      .first();
-  }
-
-  // ===================================================================================
-  async updateSyncLog(
-    id: string,
-    data: {
-      source?: string;
-      status?: "running" | "success" | "failed";
-      finishedAt?: boolean;
-      recordsProcessed?: number | null;
-      error?: string | null;
-    },
-  ) {
-    const db = this.db("API_2");
-
-    const updateData: any = {};
-
-    if (data.source !== undefined) updateData.source = data.source;
-    if (data.status !== undefined) updateData.status = data.status;
-    if (data.recordsProcessed !== undefined)
-      updateData.recordsProcessed = data.recordsProcessed;
-    if (data.error !== undefined)
-      updateData.error = data.error ? data.error.slice(0, 191) : null;
-    if (data.finishedAt === true) {
-      updateData.finishedAt = new Date()
-        .toISOString()
-        .slice(0, 19)
-        .replace("T", " ");
-    }
-
-    await db("api_hubspot_sync_log").where({ id }).update(updateData);
     return true;
   }
 

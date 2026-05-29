@@ -6,20 +6,20 @@ import { ScheduleDef } from "../../core/types/schedule.types";
 const TZ = "America/Lima";
 
 export const zoomSchedules: ScheduleDef[] = [
-  {
-    schedulerKey: "zoom-sync-users",
-    queueName: ZOOM_QUEUE,
-    jobName: "zoom",
-    action: ZOOM_ACTIONS.SYNC_USERS,
-    cron: "0 1 * * *",
-    timezone: TZ,
-  },
+  // {
+  //   schedulerKey: "zoom-sync-users",
+  //   queueName: ZOOM_QUEUE,
+  //   jobName: "zoom",
+  //   action: ZOOM_ACTIONS.SYNC_USERS,
+  //   cron: "0 1 * * *",
+  //   timezone: TZ,
+  // },
   {
     schedulerKey: "zoom-sync-meetings",
     queueName: ZOOM_QUEUE,
     jobName: "zoom",
     action: ZOOM_ACTIONS.SYNC_MEETINGS_ROOMS,
-    cron: "0 2 * * *",
+    cron: "0 5 * * *",
     timezone: TZ,
   },
   {
@@ -27,7 +27,7 @@ export const zoomSchedules: ScheduleDef[] = [
     queueName: ZOOM_QUEUE,
     jobName: "zoom",
     action: ZOOM_ACTIONS.SYNC_INSTANCES,
-    cron: "0 3 * * *",
+    cron: "10 5 * * *",
     timezone: TZ,
   },
   {
@@ -35,7 +35,7 @@ export const zoomSchedules: ScheduleDef[] = [
     queueName: ZOOM_QUEUE,
     jobName: "zoom",
     action: ZOOM_ACTIONS.SYNC_PARTICIPANTS_RAW,
-    cron: "0 4 * * *",
+    cron: "20 5 * * *",
     timezone: TZ,
   },
   {
@@ -43,7 +43,7 @@ export const zoomSchedules: ScheduleDef[] = [
     queueName: ZOOM_QUEUE,
     jobName: "zoom",
     action: ZOOM_ACTIONS.SYNC_PARTICIPANTS,
-    cron: "0 5 * * *",
+    cron: "30 5 * * *",
     timezone: TZ,
   },
   {
@@ -51,7 +51,7 @@ export const zoomSchedules: ScheduleDef[] = [
     queueName: ZOOM_QUEUE,
     jobName: "zoom",
     action: ZOOM_ACTIONS.SYNC_ASISTENCIAS,
-    cron: "0 6 * * *",
+    cron: "40 5 * * *",
     timezone: TZ,
   },
 ];

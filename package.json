@@ -10,7 +10,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "Worker de sincronización Zoom y Hubspot",
+  "description": "Worker",
   "dependencies": {
     "bullmq": "^5.76.5",
     "dotenv": "^17.3.1",
