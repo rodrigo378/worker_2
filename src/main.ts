@@ -4,14 +4,13 @@ import http from "node:http";
 import { env } from "./core/config/env";
 import { initDb } from "./core/db";
 import { startWorkers } from "./core/queue/worker";
-import { registerSchedules } from "./core/queue/schedule-registry";
 
 async function main() {
   const db = await initDb(env.DB_CONNECTIONS);
   console.log("BD conectada:", db.list());
 
   // Registra schedules estáticos en Redis
-  await registerSchedules();
+  // await registerSchedules();
 
   // Arranca workers
   const { closeAll } = startWorkers(db);
