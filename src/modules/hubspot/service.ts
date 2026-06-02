@@ -131,4 +131,19 @@ export class HubspotService {
     console.log("fin");
     return true;
   }
+
+  // ===================================================================================
+  async sincronizarHubspot() {
+    console.log("inicio sincronización completa Hubspot");
+
+    const totalContactos = await this.sincronizarContactos();
+    await this.sincronizarConsolidado();
+
+    console.log("fin sincronización completa Hubspot");
+
+    return {
+      ok: true,
+      totalContactos,
+    };
+  }
 }

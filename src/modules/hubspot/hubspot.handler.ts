@@ -18,12 +18,8 @@ export function buildHubspotHandler(service: HubspotService) {
     let result: unknown;
 
     switch (action) {
-      case HUBSPOT_ACTIONS.SYNC_CONTACTOS:
-        result = await service.sincronizarContactos();
-        break;
-
-      case HUBSPOT_ACTIONS.SYNC_CONSOLIDADO:
-        result = await service.sincronizarConsolidado();
+      case HUBSPOT_ACTIONS.SYNC_COMPLETA:
+        result = await service.sincronizarHubspot();
         break;
 
       default:

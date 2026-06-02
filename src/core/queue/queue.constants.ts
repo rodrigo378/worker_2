@@ -18,8 +18,7 @@ export type ZoomAction = (typeof ZOOM_ACTIONS)[keyof typeof ZOOM_ACTIONS];
 
 // Acciones de Hubspot
 export const HUBSPOT_ACTIONS = {
-  SYNC_CONTACTOS: "sync_contactos",
-  SYNC_CONSOLIDADO: "sync_consolidado",
+  SYNC_COMPLETA: "sync_completa",
 } as const;
 
 export type HubspotAction =
