@@ -39,6 +39,11 @@ function buildWorker(
   const worker = new Worker(
     queueName,
     async (job: Job) => {
+      logger.info(
+        { queueName, jobName: job.name, jobId: job.id },
+        "JOB RECIBIDO",
+      ); // ← AGREGAR
+
       const startedAt = Date.now();
       const jobId = String(job.id ?? `pending-${job.data?.traceId}`);
 
