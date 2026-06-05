@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "build": "tsc",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "test:zoom": "tsx src/testing/test-hubspot.ts"
   },
   "keywords": [],
   "author": "",
