@@ -565,7 +565,7 @@ export class ZoomRepository {
     n_numdia: number,
     c_dnidoc?: string | null,
   ) {
-    const params: unknown[] = [courseid, n_numdia];
+    const params: any[] = [courseid, n_numdia];
 
     let docenteWhere = "";
 
