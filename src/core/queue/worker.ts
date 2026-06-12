@@ -27,6 +27,12 @@ import { HubspotService } from "../../modules/hubspot/service";
 import { buildHubspotHandler } from "../../modules/hubspot/hubspot.handler";
 import { HUBSPOT_QUEUE, ZOOM_QUEUE } from "./queue.constants";
 
+type WorkerTuningOptions = {
+  lockDuration?: number;
+  lockRenewTime?: number;
+  maxStalledCount?: number;
+  stalledInterval?: number;
+};
 // ===================================================================
 // Factory: crea un Worker con el ciclo de log estandarizado
 // ===================================================================
@@ -35,6 +41,7 @@ function buildWorker(
   handler: (job: Job) => Promise<unknown>,
   concurrency: number,
   log: ReturnType<typeof buildJobLog>,
+  options?: WorkerTuningOptions,
 ) {
   const worker = new Worker(
     queueName,
@@ -87,7 +94,11 @@ function buildWorker(
         throw err;
       }
     },
-    { connection: redisConnection, concurrency },
+    {
+      connection: redisConnection,
+      concurrency,
+      ...options,
+    } as any,
   );
 
   // QueueEvents (solo para logging local)
@@ -128,6 +139,11 @@ export function startWorkers(db: DbRegistry) {
     buildHubspotHandler(hubspotService),
     1,
     log,
+    {
+      lockDuration: 30 * 60 * 1000,
+      lockRenewTime: 15 * 60 * 1000,
+      maxStalledCount: 1,
+    },
   );
 
   logger.info("Workers 'zoom' y 'hubspot' iniciados");
