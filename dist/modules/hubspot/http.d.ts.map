@@ -1,1 +1,0 @@
-{"version":3,"file":"http.d.ts","sourceRoot":"","sources":["../../../src/modules/hubspot/http.ts"],"names":[],"mappings":"AAGA,qBAAa,iBAAiB;IAC5B,OAAO,CAAC,KAAK,CAAqB;IAClC,OAAO,CAAC,QAAQ,CAAwB;IAElC,YAAY,CAAC,KAAK,CAAC,EAAE,MAAM;iBAsDpB,GAAG,EAAE;gBACN;YACN,IAAI,EAAE;gBACJ,KAAK,EAAE,MAAM,CAAC;gBACd,IAAI,EAAE,MAAM,CAAC;aACd,CAAC;SACH;;CAGN"}
