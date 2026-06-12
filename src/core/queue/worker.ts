@@ -1,11 +1,3 @@
-// core/queue/worker.ts
-//
-// Arranca DOS workers de BullMQ en este mismo proceso:
-//   - cola "zoom"    (concurrency 2)  → sincronizaciones de Zoom
-//   - cola "hubspot" (concurrency 1)  → sincronizaciones de Hubspot
-//
-// Cada job actualiza core_job_log: processing → completed/failed.
-
 import { Worker, QueueEvents } from "bullmq";
 import type { Job } from "bullmq";
 import { redisConnection } from "../config/redis";
@@ -55,7 +47,16 @@ function buildWorker(
       const jobId = String(job.id ?? `pending-${job.data?.traceId}`);
 
       try {
-        await log.markJobProcessing(jobId, job.attemptsMade);
+        // await log.markJobProcessing(jobId, job.attemptsMade);
+        await log.markJobProcessing(jobId, job.attemptsMade, {
+          queueName,
+          jobName: job.name,
+          action: job.data?.action ?? null,
+          source: job.data?.source ?? "scheduler",
+          traceId: job.data?.trace_id ?? job.data?.traceId ?? null,
+          scheduleId: job.data?.schedule_id ?? job.data?.scheduleId ?? null,
+          payload: job.data ?? null,
+        });
       } catch (err) {
         logger.error({ jobId, err }, "Error markJobProcessing");
       }
