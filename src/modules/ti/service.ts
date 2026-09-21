@@ -245,6 +245,16 @@ export class TiService {
       "julio.mendigure@uma.edu.pe",
     ]);
 
+    // Docentes que NO se deben suspender: se matriculan a mano.
+    // TODO: mover a configuracion/BD en vez de hardcodear.
+    const docentesIgnorados = new Set([
+      "carlos.arosquipa@uma.edu.pe",
+      "jenny.villanueva@uma.edu.pe",
+    ]);
+
+    const normalizarEmail = (email?: string) =>
+      (email ?? "").trim().toLowerCase();
+
     const nuevo = alumnosSigu.filter(
       (alumno: MoodleUser) => !setMoodle.has(alumno.id),
     );
@@ -259,7 +269,9 @@ export class TiService {
     );
 
     const borrarDocentes = docentesMoodle.filter(
-      (docente: MoodleUser) => !setDocenteSigu.has(docente.id),
+      (docente: MoodleUser) =>
+        !setDocenteSigu.has(docente.id) &&
+        !docentesIgnorados.has(normalizarEmail(docente.email)),
     );
 
     console.log("courseid => ", courseid);
